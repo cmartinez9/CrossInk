@@ -267,6 +267,12 @@ class BaseTheme {
   bool holdFeedback() const { return holdFeedback_; }
   void setPressEcho(const bool echo) const { pressEcho_ = echo; }
   bool pressEcho() const { return pressEcho_; }
+  // Option popup decorations for the next drawOptionPopup call: a divider after one option. Themes that
+  // place their own popup rows draw it themselves and return true from drawsOptionPopupDecorations(), so
+  // OptionPopup does not draw the divider and selection arrow at the generic row positions.
+  void setOptionPopupDivider(const int afterOption) const { optionPopupDivider_ = afterOption; }
+  int optionPopupDivider() const { return optionPopupDivider_; }
+  virtual bool drawsOptionPopupDecorations() const { return false; }
 
   // Component drawing methods
   void drawProgressBar(const GfxRenderer& renderer, Rect rect, size_t current, size_t total) const;
@@ -347,4 +353,5 @@ class BaseTheme {
  private:
   mutable bool holdFeedback_ = false;
   mutable bool pressEcho_ = false;
+  mutable int optionPopupDivider_ = -1;
 };

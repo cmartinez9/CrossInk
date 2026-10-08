@@ -15,8 +15,9 @@ struct Icon;
 // Black +1, then a white face inside a 1 px black hairline). A pressed shape is the same stack inset.
 namespace relief {
 
-constexpr int kClockFontId = RELIEF_CLOCK_FONT_ID;  // Inter Bold 46 pt: digits, colon, percent
-constexpr int kTitleFontId = RELIEF_TITLE_FONT_ID;  // Inter Bold 16 pt: ASCII
+constexpr int kClockFontId = RELIEF_CLOCK_FONT_ID;    // Inter Bold 46 pt: digits, colon, percent
+constexpr int kDigitsFontId = RELIEF_DIGITS_FONT_ID;  // Inter Bold 31 pt: digits, colon, percent, minus
+constexpr int kTitleFontId = RELIEF_TITLE_FONT_ID;    // Inter Bold 16 pt: ASCII
 
 void raised(const GfxRenderer& r, int x, int y, int w, int h, int radius, bool lifted = false);
 void pressed(const GfxRenderer& r, int x, int y, int w, int h, int radius);
@@ -43,6 +44,10 @@ void textCentered(const GfxRenderer& r, int fontId, int x, int w, int y, const c
                   EpdFontFamily::Style style = EpdFontFamily::REGULAR);
 void textRight(const GfxRenderer& r, int fontId, int right, int y, const char* text, bool black = true,
                EpdFontFamily::Style style = EpdFontFamily::REGULAR);
+// Display text with letter-spacing: each character is drawn on its own, `tracking` px apart (negative
+// tightens). For the clock, where the design tracks the digits in by 3 px.
+int trackedTextWidth(const GfxRenderer& r, int fontId, const char* text, int tracking);
+void trackedText(const GfxRenderer& r, int fontId, int x, int y, const char* text, int tracking);
 // 50 % (checker) text for large display lines only; below ~26 px the checker eats the strokes.
 void greyText(const GfxRenderer& r, int fontId, int x, int y, const char* text,
               EpdFontFamily::Style style = EpdFontFamily::REGULAR);

@@ -3,6 +3,7 @@
 #include <I18n.h>
 
 #include "BookStatsView.h"
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -508,7 +509,8 @@ void BookStatsActivity::render(RenderLock&&) {
       renderEditBookDatesPage(renderer, &mappedInput, bookTitle, stats, selectedEditField, true);
       break;
   }
-  if (page != Page::EditDates) {
+  // Relief names the pages in its headers and hints (Prev / Next) instead of drawing page dots.
+  if (page != Page::EditDates && SETTINGS.uiTheme != CrossPointSettings::UI_THEME::RELIEF) {
     drawPageIndicators(renderer, static_cast<int>(page), showAllDevicesStats ? 3 : 2);
   }
   renderer.displayBuffer();

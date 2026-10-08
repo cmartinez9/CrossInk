@@ -68,11 +68,14 @@ UITheme::UITheme() : currentMetrics(&LyraMetrics::values), currentTheme(std::mak
 }
 
 void UITheme::reload() {
+  // Relief's screens are laid out for the X3's 528 x 792 portrait panel. The X4 shares the X3/X4 image
+  // but has a 480 x 800 panel, so it keeps Lyra Carousel (Relief's base theme, already in the image).
+  const bool reliefFits = !CROSSINK_APP_CAP_TOUCH && gpio.deviceIsX3();
   if (CROSSINK_THEME_RELIEF_ONLY) {
     // Relief-only images pin the stored theme, so every theme check in the app agrees with what is drawn.
-    SETTINGS.uiTheme = CrossPointSettings::UI_THEME::RELIEF;
-  } else if (CROSSINK_APP_CAP_TOUCH && SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) {
-    // Relief is drawn for button devices; touch images fall back to Lyra.
+    SETTINGS.uiTheme = reliefFits ? CrossPointSettings::UI_THEME::RELIEF : CrossPointSettings::UI_THEME::LYRA_CAROUSEL;
+  } else if (!reliefFits && SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) {
+    // Relief is drawn for the X3; touch devices and the X4 fall back to Lyra.
     SETTINGS.uiTheme = CrossPointSettings::UI_THEME::LYRA;
   }
   auto themeType = static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme);
@@ -99,9 +102,14 @@ bool UITheme::hasCoverGridHome() {
 
 void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
 #if CROSSINK_THEME_RELIEF_ONLY
-  (void)type;
-  currentTheme = std::make_unique<ReliefTheme>();
-  currentMetrics = &ReliefMetrics::values;
+  if (type == CrossPointSettings::UI_THEME::RELIEF) {
+    currentTheme = std::make_unique<ReliefTheme>();
+    currentMetrics = &ReliefMetrics::values;
+  } else {
+    // The X4 fallback (see reload()).
+    currentTheme = std::make_unique<LyraCarouselTheme>();
+    currentMetrics = &LyraCarouselMetrics::values;
+  }
   metricsValid = false;
 #else
   if (type == CrossPointSettings::UI_THEME::COVER_GRID && !supportsCoverGrid()) {

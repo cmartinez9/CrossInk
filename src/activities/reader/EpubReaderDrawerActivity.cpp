@@ -3288,19 +3288,33 @@ void EpubReaderDrawerActivity::renderReliefOverlay() {
   renderer.fillRect(L.x - 4, L.y, L.width + 8, L.height, false);
   const auto& rows = activeRows();
   const int lh = renderer.getLineHeight(UI_10_FONT_ID);
-  const int sh = renderer.getLineHeight(SMALL_FONT_ID);
   const int cardW = L.width - 10;
-  for (int i = 0; i < reliefRows; ++i) {
+  // One raised card holds the rows (dotted rules between them, the focused row sinks), as in the design.
+  // Separate raised rows would need a gap wider than their 7 px shadow, or each shadow runs under the
+  // next row.
+  const int shown = std::max(0, std::min(reliefRows, static_cast<int>(rows.size()) - reliefTop));
+  if (shown == 0) return;
+  const int stride = reliefRowH + reliefGap;
+  const int rowsH = shown * stride - reliefGap;
+  const int pad = std::clamp((L.height - 7 - rowsH) / 2, 2, 6);
+  raised(renderer, L.x, L.y, cardW, rowsH + 2 * pad, 22);
+  for (int i = 0; i < shown; ++i) {
     const int idx = reliefTop + i;
-    if (idx >= static_cast<int>(rows.size())) break;
     const RowId row = rows[static_cast<size_t>(idx)];
-    const int y = L.y + i * (reliefRowH + reliefGap);
+    const int y = L.y + pad + i * stride;
     const bool f = isReaderDrawerRowFocused(buttonFocusActive, state.selectedIndex, static_cast<int16_t>(idx));
+    const bool nextFocused =
+        isReaderDrawerRowFocused(buttonFocusActive, state.selectedIndex, static_cast<int16_t>(idx + 1));
     const int d = f ? 1 : 0;
-    surface(renderer, L.x, y, cardW, reliefRowH, 18, f);
+    if (f) {
+      pressed(renderer, L.x + 6, y, cardW - 12, reliefRowH, 18);
+    } else if (i < shown - 1 && !nextFocused) {
+      for (int dx = L.x + 18; dx < L.x + cardW - 18; dx += 4)
+        renderer.drawPixel(dx, y + reliefRowH + reliefGap / 2, true);
+    }
     text(renderer, UI_10_FONT_ID, L.x + 18 + d, y + (reliefRowH - lh) / 2 + d, rowLabel(row), true,
          f ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
-    const int right = L.x + cardW - 16;
+    const int right = L.x + cardW - 18;
     if (rowIsToggle(row)) {
       const bool on = rowToggleValue(row);
       const int tw = 50, th = 26, tx = right - tw + d, ty = y + (reliefRowH - th) / 2 + d;
@@ -3321,7 +3335,8 @@ void EpubReaderDrawerActivity::renderReliefOverlay() {
         renderer.drawLine(cx, cy, cx - 5, cy + 6, 2, true);
         vr -= 18;
       }
-      if (v && *v) textRight(renderer, SMALL_FONT_ID, vr + d, y + (reliefRowH - sh) / 2 + d, v, true);
+      if (v && *v)
+        textRight(renderer, UI_10_FONT_ID, vr + d, y + (reliefRowH - lh) / 2 + d, v, true, EpdFontFamily::BOLD);
     }
   }
 }

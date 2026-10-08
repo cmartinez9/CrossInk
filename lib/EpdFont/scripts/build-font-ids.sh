@@ -48,6 +48,7 @@ emit_hash_define SMALL_FONT_ID ./inter_8_regular.h
 # Relief theme display faces
 emit_hash_define RELIEF_TITLE_FONT_ID ./relief_title_16.h
 emit_hash_define RELIEF_CLOCK_FONT_ID ./relief_clock_46.h
+emit_hash_define RELIEF_DIGITS_FONT_ID ./relief_digits_31.h
 
 echo ""
 echo "// Font ID 0 is reserved as the \"not found\" sentinel."
@@ -55,6 +56,6 @@ echo "// Guard against any hash accidentally producing 0."
 for id in \
   LEXENDDECA_10_FONT_ID LEXENDDECA_12_FONT_ID LEXENDDECA_14_FONT_ID LEXENDDECA_16_FONT_ID \
   BITTER_10_FONT_ID BITTER_12_FONT_ID BITTER_14_FONT_ID BITTER_16_FONT_ID \
-  UI_10_FONT_ID UI_12_FONT_ID SMALL_FONT_ID RELIEF_TITLE_FONT_ID RELIEF_CLOCK_FONT_ID; do
+  UI_10_FONT_ID UI_12_FONT_ID SMALL_FONT_ID RELIEF_TITLE_FONT_ID RELIEF_CLOCK_FONT_ID RELIEF_DIGITS_FONT_ID; do
   echo "static_assert(${id} != 0, \"Font ID collision with sentinel\");"
 done

@@ -9,6 +9,8 @@ class GfxRenderer;
 class ThemeStub {
  public:
   void drawButtonHints(const GfxRenderer&, const char*, const char*, const char*, const char*, bool) const {}
+  void setOptionPopupDivider(const int) const {}
+  bool drawsOptionPopupDecorations() const { return false; }
   void setPressEcho(const bool on) const {
     if (on) ++echoFrames;
   }

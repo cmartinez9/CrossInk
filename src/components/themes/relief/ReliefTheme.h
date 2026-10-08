@@ -39,6 +39,8 @@ class ReliefTheme : public LyraCarouselTheme {
                        const char* saveLabel = nullptr, bool saveFocused = false, int primaryOptionIndex = -1,
                        const char* noteLabel = nullptr, const char* noteBody = nullptr,
                        const std::vector<bool>& disabledOptions = {}, int firstOptionIndex = -1) const override;
+  // The list card places its own rows, so it draws the divider itself; focus already sinks, so no arrow.
+  bool drawsOptionPopupDecorations() const override { return true; }
   Rect drawPopup(const GfxRenderer& renderer, const char* message, bool preserveBackdrop = false) const override;
   void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, int progress) const override;
   void drawTextField(const GfxRenderer& renderer, Rect rect, int textWidth, bool cursorMode = false,

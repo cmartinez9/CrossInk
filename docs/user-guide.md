@@ -255,10 +255,11 @@ device model and build.
 
   Themes that show reading stats hide those stats while **Track Reading Stats** is off.
 
-  X3 and X4 firmware uses the **Relief** theme only and hides this setting.
-  Relief draws raised soft keys and cards with a large Home clock, Now reading
-  and Up next shelves, and battery and book progress as liquid tubes. It is not
-  offered on touch devices yet.
+  X3 and X4 firmware hides this setting. The X3 uses the **Relief** theme:
+  raised soft keys and cards with a large Home clock, Now reading and Up next
+  shelves, and battery and book progress as liquid tubes. The X4 uses Lyra
+  Carousel until Relief has a layout for its screen. Relief is not offered on
+  touch devices yet.
 
 - **Relief Motion** (Relief theme only): optional effects that each cost extra
   screen refreshes.

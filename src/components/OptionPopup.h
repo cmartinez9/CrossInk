@@ -308,10 +308,13 @@ class OptionPopup {
     if (!active) return;
     const auto& renderLayout = getLayout(renderer);
     GUI.setPressEcho(echoPending);
+    GUI.setOptionPopupDivider(dividerAfterOption);
     GUI.drawOptionPopup(renderer, title.c_str(), ownedStrings, selectedIndex, confirmationMode, tr(STR_CANCEL),
                         tr(STR_SAVE), footerFocused, primaryOptionIndex, popupNote.boldLabel, popupNote.body,
                         disabledOptions, renderLayout.firstOptionIndex);
     GUI.setPressEcho(false);
+    GUI.setOptionPopupDivider(-1);
+    if (GUI.drawsOptionPopupDecorations()) return;
     const int visibleIndex = dividerAfterOption - renderLayout.firstOptionIndex;
     if (visibleIndex >= 0 && visibleIndex + 1 < static_cast<int>(renderLayout.options.size())) {
       const auto& row = renderLayout.options[visibleIndex];

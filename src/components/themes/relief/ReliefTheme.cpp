@@ -218,6 +218,11 @@ void ReliefTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title
     if (idx == primaryOptionIndex) {
       renderer.fillRoundedRect(cx + cw - 44 + d, ry + kRowH / 2 - 5 + d, 10, 10, 5, Color::Black);
     }
+    if (idx == optionPopupDivider() && i < visible - 1) {
+      // A dotted rule in the gap below this row (the gap between rows is kStep - kRowH).
+      const int y = ry + kRowH + (kStep - kRowH) / 2;
+      for (int dx = cx + 28; dx < cx + cw - 28; dx += 4) renderer.drawPixel(dx, y, true);
+    }
   }
   if (count > visible) {
     const int trackY = cy + 62, trackH = visible * kStep - 8;

@@ -2514,9 +2514,22 @@ void HomeActivity::renderReliefHome(const bool allowGreyShadows) {
   }
   char* suffix = strchr(buf, ' ');
   if (suffix) *suffix++ = '\0';
-  text(renderer, kClockFontId, 20, 62, buf);
-  if (suffix)
-    text(renderer, UI_10_FONT_ID, 24 + textWidth(renderer, kClockFontId, buf), 148, suffix, true, EpdFontFamily::BOLD);
+  {
+    // The clock tracks in by 3 px as designed; wide times ("20:08") tighten further so the digits never
+    // reach the Now reading card at x 290.
+    const int digits = static_cast<int>(strlen(buf));
+    const int maxW = 290 - 20 - 12 - (suffix ? 34 : 0);
+    int tracking = -3;
+    const int natural = trackedTextWidth(renderer, kClockFontId, buf, 0);
+    if (digits > 1 && natural + (digits - 1) * tracking > maxW) {
+      tracking = std::max(-9, (maxW - natural) / (digits - 1) - 1);
+    }
+    trackedText(renderer, kClockFontId, 20, 62, buf, tracking);
+    if (suffix) {
+      text(renderer, UI_10_FONT_ID, 24 + trackedTextWidth(renderer, kClockFontId, buf, tracking), 148, suffix, true,
+           EpdFontFamily::BOLD);
+    }
+  }
   if (formatHeaderDateText(buf, sizeof(buf))) text(renderer, UI_10_FONT_ID, 26, 184, buf, true, EpdFontFamily::BOLD);
   {
     // Grey (checker) display text only works large; fall back to black when the line is too wide.

@@ -17,6 +17,7 @@
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/icons/listIcons.h"
+#include "components/icons/reliefIcons.h"
 #include "components/themes/relief/ReliefKit.h"
 #include "fontIds.h"
 
@@ -224,26 +225,6 @@ float pagesPerMinute(const uint32_t totalPagesTurned, const uint32_t totalReadin
   return static_cast<float>(totalPagesTurned) * 60.0f / static_cast<float>(totalReadingSeconds);
 }
 
-bool reliefStats() { return SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF; }
-
-// Card frame: Relief draws a raised card inside the slot (its shadow stays within the slot), other
-// themes keep the hairline rectangle.
-void drawStatsCardFrame(const GfxRenderer& renderer, const int x, const int y, const int w, const int h) {
-  if (reliefStats()) {
-    relief::raised(renderer, x, y, w - 7, h - 7, 18);
-  } else {
-    renderer.drawRect(x, y, w, h);
-  }
-}
-
-void drawStatsDivider(const GfxRenderer& renderer, const int x, const int y, const int w) {
-  if (reliefStats()) {
-    for (int dx = x + 16; dx < x + w - 23; dx += 2) renderer.drawPixel(dx, y, true);
-  } else {
-    renderer.drawLine(x, y, x + w, y);
-  }
-}
-
 void drawCenteredLabel(const GfxRenderer& renderer, const int fontId, const int x, const int w, const int y,
                        const char* text, const bool bold = false) {
   const int textWidth = renderer.getTextWidth(fontId, text, bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
@@ -263,8 +244,8 @@ void drawStatCell(const GfxRenderer& renderer, const int x, const int w, const i
 
 void drawSectionCard(const GfxRenderer& renderer, const int x, const int y, const int w, const int h, const char* title,
                      const StatsLayout& layout) {
-  drawStatsCardFrame(renderer, x, y, w, h);
-  drawStatsDivider(renderer, x, y + layout.sectionTitleH, w);
+  renderer.drawRect(x, y, w, h);
+  renderer.drawLine(x, y + layout.sectionTitleH, x + w, y + layout.sectionTitleH);
   drawCenteredLabel(renderer, layout.sectionTitleFontId, x, w,
                     y + (layout.sectionTitleH - renderer.getLineHeight(layout.sectionTitleFontId)) / 2, title, true);
 }
@@ -302,12 +283,7 @@ void drawHorizontalBars(GfxRenderer& renderer, const int x, const int y, const i
     const int labelY = rowTop + (rowContentH - labelLineH) / 2;
     const int barY = rowTop + (rowContentH - layout.barH) / 2;
     renderer.drawText(layout.chartLabelFontId, x + labelLeftPadding, labelY, I18N.get(labels[i]));
-    if (reliefStats()) {
-      // Relief: every row is a groove; the ink fill is the value (empty rows still show their track).
-      const int tubeH = std::max(8, layout.barH);
-      const float level = maxValue > 0 ? static_cast<float>(values[i]) / static_cast<float>(maxValue) : 0.0f;
-      relief::tube(renderer, barX, rowTop + (rowContentH - tubeH) / 2, barW, tubeH, level);
-    } else if (maxValue > 0 && values[i] > 0) {
+    if (maxValue > 0 && values[i] > 0) {
       const int fillW = std::max(2, static_cast<int>((static_cast<uint64_t>(barW) * values[i]) / maxValue));
       renderer.fillRect(barX, barY, fillW, layout.barH, true);
     }
@@ -318,8 +294,8 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
                           const std::string& bookTitle, const BookReadingStats& stats, const float progressPercent,
                           const bool hasEstimatedTimeLeft, const uint32_t estimatedTimeLeftSeconds,
                           const StatsLayout& layout) {
-  drawStatsCardFrame(renderer, x, y, w, h);
-  drawStatsDivider(renderer, x, y + layout.topCardTitleH, w);
+  renderer.drawRect(x, y, w, h);
+  renderer.drawLine(x, y + layout.topCardTitleH, x + w, y + layout.topCardTitleH);
   const std::string visibleTitle =
       renderer.truncatedText(UI_10_FONT_ID, bookTitle.c_str(), w - 20, EpdFontFamily::BOLD);
   drawCenteredLabel(renderer, UI_10_FONT_ID, x, w,
@@ -413,8 +389,8 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
 
 void drawGlobalStatsCard(GfxRenderer& renderer, const int x, const int y, const int w, const int h, const char* title,
                          const GlobalReadingStats& stats, const StatsLayout& layout) {
-  drawStatsCardFrame(renderer, x, y, w, h);
-  drawStatsDivider(renderer, x, y + layout.topCardTitleH, w);
+  renderer.drawRect(x, y, w, h);
+  renderer.drawLine(x, y + layout.topCardTitleH, x + w, y + layout.topCardTitleH);
   const bool showRtcStats = shouldShowRtcBasedStats();
   drawCenteredLabel(renderer, UI_10_FONT_ID, x, w,
                     y + (layout.topCardTitleH - renderer.getLineHeight(UI_10_FONT_ID)) / 2, title, true);
@@ -469,11 +445,6 @@ void drawDateField(const GfxRenderer& renderer, const int x, const int y, const 
   if (touchTarget >= 0) {
     TouchRegistry::getInstance().add(Rect(x, y, w, h), touchTarget, TouchRegistry::Item);
   }
-  if (reliefStats()) {
-    relief::surface(renderer, x, y, w, h, h / 2, selected);
-    drawCenteredLabel(renderer, UI_12_FONT_ID, x + (selected ? 1 : 0), w, y + 5 + (selected ? 1 : 0), text);
-    return;
-  }
   renderer.fillRectDither(x, y, w, h, selected ? Color::LightGray : Color::White);
   renderer.drawRect(x, y, w, h, true);
   if (selected) {
@@ -485,11 +456,7 @@ void drawDateField(const GfxRenderer& renderer, const int x, const int y, const 
 void drawDateAdjustButton(const GfxRenderer& renderer, const int x, const int y, const int size,
                           const freeink::Icon& icon, const int touchTarget) {
   TouchRegistry::getInstance().add(Rect(x, y, size, size), touchTarget, TouchRegistry::Item);
-  if (reliefStats()) {
-    relief::raised(renderer, x, y, size, size, size / 2);
-  } else {
-    renderer.drawRect(x, y, size, size, true);
-  }
+  renderer.drawRect(x, y, size, size, true);
   const freeink::ui::BitmapRef bitmap{icon.bits, icon.w, icon.h, freeink::ui::BitmapFormat::Mask1, true};
   freeink::ui::forEachBitmapPixel(
       freeink::ui::Rect{static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(size),
@@ -497,12 +464,402 @@ void drawDateAdjustButton(const GfxRenderer& renderer, const int x, const int y,
       bitmap, freeink::ui::BitmapMode::Center,
       [&renderer](const int16_t px, const int16_t py) { renderer.drawPixel(px, py, true); });
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Relief layouts: the "Reading stats", "This device" and "Edit dates" boards of the Relief design (section 2).
+// Vertical positions follow the 792 px X3 portrait design; widths follow the screen with 24 px side margins.
+
+bool reliefStats() { return SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF; }
+
+constexpr int kReliefMargin = 24;
+constexpr int kReliefRowH = 52;
+
+// "H:MM" of a duration, for the clock and digits faces (digits and colon only).
+void formatReliefHoursMinutes(const uint32_t seconds, char* buf, const size_t len) {
+  snprintf(buf, len, "%lu:%02lu", static_cast<unsigned long>(seconds / 3600),
+           static_cast<unsigned long>((seconds / 60) % 60));
+}
+
+void drawReliefStatsHeader(const GfxRenderer& renderer, const char* title, const char* subtitle) {
+  const int W = renderer.getScreenWidth();
+  std::string sub;
+  if (subtitle && *subtitle) sub = renderer.truncatedText(SMALL_FONT_ID, subtitle, W - 2 * kReliefMargin - 120);
+  GUI.drawHeader(renderer, Rect{0, 8, W, 80}, title, sub.empty() ? nullptr : sub.c_str());
+}
+
+void drawReliefChevron(const GfxRenderer& renderer, const int right, const int cy) {
+  renderer.drawLine(right - 5, cy - 6, right, cy, 2, true);
+  renderer.drawLine(right, cy, right - 5, cy + 6, 2, true);
+}
+
+struct ReliefStatsRow {
+  const char* label;
+  const char* value;
+};
+
+// One raised card of label / value rows with dotted rules between them; the focused row sinks.
+void drawReliefRowsCard(const GfxRenderer& renderer, const int x, const int y, const int w, const ReliefStatsRow* rows,
+                        const int count, const int rowH, const int focus, const bool chevrons) {
+  using namespace relief;
+  raised(renderer, x, y, w, 16 + count * rowH, 24);
+  const int lh = renderer.getLineHeight(UI_10_FONT_ID);
+  for (int i = 0; i < count; ++i) {
+    const int ry = y + 8 + i * rowH;
+    const bool focused = i == focus;
+    const int d = focused ? 1 : 0;
+    if (focused) {
+      pressed(renderer, x + 8, ry, w - 16, rowH - 4, 20);
+    } else if (i < count - 1 && i + 1 != focus) {
+      for (int dx = x + 22; dx < x + w - 22; dx += 4) renderer.drawPixel(dx, ry + rowH - 2, true);
+    }
+    const int ty = ry + (rowH - 4 - lh) / 2 + d;
+    int right = x + w - 22 + d;
+    if (chevrons) {
+      drawReliefChevron(renderer, right, ty + lh / 2);
+      right -= 16;
+    }
+    const std::string value = renderer.truncatedText(UI_10_FONT_ID, rows[i].value, w / 2, EpdFontFamily::BOLD);
+    textRight(renderer, UI_10_FONT_ID, right, ty, value.c_str(), true, EpdFontFamily::BOLD);
+    const int labelW =
+        right - (x + 22 + d) - textWidth(renderer, UI_10_FONT_ID, value.c_str(), EpdFontFamily::BOLD) - 12;
+    const auto labelStyle = focused ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+    const std::string label = renderer.truncatedText(UI_10_FONT_ID, rows[i].label, std::max(0, labelW), labelStyle);
+    text(renderer, UI_10_FONT_ID, x + 22 + d, ty, label.c_str(), true, labelStyle);
+  }
+}
+
+// A small raised tile: a big value in the title face over a label.
+void drawReliefStatTile(const GfxRenderer& renderer, const int x, const int y, const int w, const int h,
+                        const char* value, const char* label) {
+  using namespace relief;
+  raised(renderer, x, y, w, h, 24);
+  const int font = titleFontFor(value);
+  const auto style = font == kTitleFontId ? EpdFontFamily::REGULAR : EpdFontFamily::BOLD;
+  const std::string v = renderer.truncatedText(font, value, w - 36, style);
+  text(renderer, font, x + 18, y + 14, v.c_str(), true, style);
+  const std::string l = renderer.truncatedText(SMALL_FONT_ID, label, w - 36);
+  text(renderer, SMALL_FONT_ID, x + 18, y + h - 42, l.c_str());
+}
+
+// Time left for the book in the compact form ("2 h"), or "-" when there is no estimate or it is finished.
+void formatReliefTimeLeft(const BookReadingStats& stats, const float progressPercent, const bool hasEstimatedTimeLeft,
+                          const uint32_t estimatedTimeLeftSeconds, char* buf, const size_t len) {
+  uint32_t cachedSeconds = 0;
+  uint32_t fallbackSeconds = 0;
+  const bool hasCached = cachedEstimatedTimeLeft(stats, cachedSeconds);
+  const bool hasFallback = fallbackEstimatedTimeLeft(stats, progressPercent, fallbackSeconds);
+  if (stats.isCompleted || !(hasEstimatedTimeLeft || hasCached || hasFallback)) {
+    snprintf(buf, len, "-");
+    return;
+  }
+  formatCompactReadingDuration(hasEstimatedTimeLeft ? estimatedTimeLeftSeconds
+                               : hasCached          ? cachedSeconds
+                                                    : fallbackSeconds,
+                               buf, len);
+}
+
+// The top of the book page: hours in the book (clock face and book key), pace / sessions / time left tiles,
+// and the book progress as ten tubes. The design's chapter tubes need chapter positions, which the stats
+// screen does not have, so each tube is a tenth of the book instead.
+void drawReliefBookSummary(const GfxRenderer& renderer, const BookReadingStats& stats, const float progressPercent,
+                           const bool hasEstimatedTimeLeft, const uint32_t estimatedTimeLeftSeconds) {
+  using namespace relief;
+  const int W = renderer.getScreenWidth();
+  const int x0 = kReliefMargin;
+  const int cw = W - 2 * kReliefMargin;
+  char buf[40];
+
+  raised(renderer, x0, 112, cw, 170, 28);
+  formatReliefHoursMinutes(stats.totalReadingSeconds, buf, sizeof(buf));
+  text(renderer, kClockFontId, x0 + 20, 128, buf);
+  text(renderer, SMALL_FONT_ID, x0 + 24, 236, tr(STR_RELIEF_HOURS_IN_BOOK));
+  roundKey(renderer, x0 + cw - 64, 196, 72, &icon_book_open_32, true, false);
+
+  constexpr int kTileGap = 18;
+  const int tileW = (cw - 2 * kTileGap) / 3;
+  const int pagesPerHour =
+      static_cast<int>(pagesPerMinute(stats.totalPagesTurned, stats.totalReadingSeconds) * 60.0f + 0.5f);
+  if (pagesPerHour > 0) {
+    snprintf(buf, sizeof(buf), "%d", pagesPerHour);
+  } else {
+    snprintf(buf, sizeof(buf), "-");
+  }
+  drawReliefStatTile(renderer, x0, 306, tileW, 110, buf, tr(STR_RELIEF_PAGES_PER_HOUR));
+  snprintf(buf, sizeof(buf), "%u", static_cast<unsigned>(stats.sessionCount));
+  drawReliefStatTile(renderer, x0 + tileW + kTileGap, 306, tileW, 110, buf, tr(STR_RELIEF_SESSIONS));
+  formatReliefTimeLeft(stats, progressPercent, hasEstimatedTimeLeft, estimatedTimeLeftSeconds, buf, sizeof(buf));
+  drawReliefStatTile(renderer, x0 + 2 * (tileW + kTileGap), 306, cw - 2 * (tileW + kTileGap), 110, buf,
+                     stats.isCompleted ? tr(STR_RELIEF_DONE) : tr(STR_RELIEF_LEFT));
+
+  const float pct = progressPercent < 0.0f ? 0.0f : std::min(progressPercent, 100.0f);
+  text(renderer, UI_10_FONT_ID, x0, 440, tr(STR_RELIEF_BOOK_PROGRESS), true, EpdFontFamily::BOLD);
+  snprintf(buf, sizeof(buf), "%d%%", static_cast<int>(pct + 0.5f));
+  textRight(renderer, UI_10_FONT_ID, x0 + cw, 440, buf, true, EpdFontFamily::BOLD);
+  constexpr int kTubes = 10;
+  constexpr int kTubeGap = 6;
+  const int tubeW = (cw - (kTubes - 1) * kTubeGap) / kTubes;
+  for (int i = 0; i < kTubes; ++i) {
+    const float level = std::clamp(pct / 10.0f - static_cast<float>(i), 0.0f, 1.0f);
+    tube(renderer, x0 + i * (tubeW + kTubeGap), 480, tubeW, 10, level);
+  }
+}
+
+void renderReliefBookStatsPage(GfxRenderer& renderer, const MappedInputManager* mappedInput,
+                               const std::string& bookTitle, const BookReadingStats& stats, const float progressPercent,
+                               const bool hasEstimatedTimeLeft, const uint32_t estimatedTimeLeftSeconds,
+                               const bool showButtonHints, const bool showEditButton, const bool showNextButton) {
+  renderer.clearScreen();
+  const int W = renderer.getScreenWidth();
+  drawReliefStatsHeader(renderer, tr(STR_READING_STATS), bookTitle.c_str());
+  drawReliefBookSummary(renderer, stats, progressPercent, hasEstimatedTimeLeft, estimatedTimeLeftSeconds);
+
+  // Dates card. The design's "Last read" is not tracked, so the middle row is the reading span instead.
+  char started[24];
+  char span[24];
+  char finish[24];
+  ReliefStatsRow rows[3];
+  if (shouldShowRtcBasedStats()) {
+    formatReadingStatsShortDate(stats.startDate, started, sizeof(started));
+    ReadingStatsDateTime today;
+    const bool hasToday = getCurrentLocalReadingStatsDateTime(today);
+    const ReadingStatsDate endDate = stats.isCompleted && stats.finishedDate.isValid()
+                                         ? stats.finishedDate
+                                         : (hasToday ? today.date : ReadingStatsDate{});
+    if (stats.startDate.isValid() && endDate.isValid()) {
+      const uint16_t days = readingSpanDaysElapsed(stats.startDate, endDate);
+      snprintf(span, sizeof(span), "%u %s", static_cast<unsigned>(days), dayCountText(days));
+    } else {
+      snprintf(span, sizeof(span), "-");
+    }
+    ReadingStatsDate finishDate;
+    if (stats.isCompleted) {
+      finishDate = stats.finishedDate;
+    } else if (hasToday) {
+      uint32_t remaining = 0;
+      if (hasEstimatedTimeLeft) {
+        remaining = estimatedTimeLeftSeconds;
+      } else if (!cachedEstimatedTimeLeft(stats, remaining)) {
+        fallbackEstimatedTimeLeft(stats, progressPercent, remaining);
+      }
+      if (remaining > 0 && !estimateFinishDateFromDailyPace(stats, today, remaining, finishDate)) {
+        ReadingStatsDateTime estimated = today;
+        addSecondsToReadingStatsDateTime(estimated, remaining);
+        finishDate = estimated.date;
+      }
+    }
+    formatReadingStatsShortDate(finishDate, finish, sizeof(finish));
+    rows[0] = {tr(STR_STATS_STARTED), started};
+    rows[1] = {tr(STR_RELIEF_READING_FOR), span};
+    rows[2] = {stats.isCompleted ? tr(STR_RELIEF_FINISHED) : tr(STR_RELIEF_EST_FINISH), finish};
+  } else {
+    // No clock: no dates, so the card holds the per-session figures instead.
+    const uint32_t avg = stats.sessionCount > 0 ? stats.totalReadingSeconds / stats.sessionCount : 0;
+    BookReadingStats::formatDuration(avg, started, sizeof(started));
+    snprintf(span, sizeof(span), "%lu", static_cast<unsigned long>(stats.totalPagesTurned));
+    BookReadingStats::formatDuration(stats.totalReadingSeconds, finish, sizeof(finish));
+    rows[0] = {tr(STR_STATS_AVG_SESSION_LBL), started};
+    rows[1] = {tr(STR_STATS_PAGES_LBL), span};
+    rows[2] = {tr(STR_STATS_TIME_LBL), finish};
+  }
+  drawReliefRowsCard(renderer, kReliefMargin, 520, W - 2 * kReliefMargin, rows, 3, kReliefRowH, -1, false);
+
+  if (showButtonHints && mappedInput) {
+    const auto labels = mappedInput->mapLabels(tr(STR_EXIT), showEditButton ? tr(STR_EDIT) : "", "",
+                                               showNextButton ? tr(STR_RELIEF_NEXT) : "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  }
+}
+
+void renderReliefDeviceStatsPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const char* screenTitle,
+                                 const GlobalReadingStats& stats, const bool showButtonHints,
+                                 const bool showNextButton) {
+  using namespace relief;
+  renderer.clearScreen();
+  const int W = renderer.getScreenWidth();
+  const int x0 = kReliefMargin;
+  const int cw = W - 2 * kReliefMargin;
+  char buf[48];
+
+  // The design's "This week" total needs a per-day minutes log the stats file does not keep; the
+  // subtitle shows the current streak instead.
+  ReadingStatsDateTime today;
+  const bool hasToday = getCurrentLocalReadingStatsDateTime(today);
+  const uint16_t streak = hasToday ? stats.currentReadingStreak(&today.date) : 0;
+  if (streak > 0) {
+    snprintf(buf, sizeof(buf), tr(STR_STATS_DAY_STREAK_FORMAT), static_cast<unsigned>(streak));
+  } else {
+    snprintf(buf, sizeof(buf), "%s", tr(STR_STATS_NO_STREAK));
+  }
+  drawReliefStatsHeader(renderer, screenTitle, buf);
+
+  raised(renderer, x0, 112, cw, 150, 28);
+  formatReliefHoursMinutes(stats.totalReadingSeconds, buf, sizeof(buf));
+  text(renderer, kClockFontId, x0 + 16, 124, buf);
+  text(renderer, SMALL_FONT_ID, x0 + 20, 228, tr(STR_RELIEF_HOURS_IN_TOTAL));
+  roundKey(renderer, x0 + cw - 58, 170, 64, &icon_flame_32, true, false);
+
+  // Seven liquid columns. The design's "minutes per day" needs a 7-day log the firmware does not keep;
+  // the columns show all-time reading per weekday, scaled to the busiest day. Today's label is bold.
+  raised(renderer, x0, 286, cw, 270, 28);
+  text(renderer, SMALL_FONT_ID, x0 + 20, 298, tr(STR_RELIEF_BY_WEEKDAY));
+  const uint32_t maxDay = *std::max_element(stats.dayOfWeekSeconds.begin(), stats.dayOfWeekSeconds.end());
+  const int todayIndex = hasToday ? readingStatsDayOfWeekIndex(today.date) : -1;
+  constexpr int kColW = 52;
+  const int colStep = (cw - 40 - kColW) / 6;
+  for (int i = 0; i < static_cast<int>(DAY_LABELS.size()); ++i) {
+    const int cx = x0 + 20 + i * colStep;
+    const float level = maxDay > 0 ? static_cast<float>(stats.dayOfWeekSeconds[i]) / static_cast<float>(maxDay) : 0.0f;
+    liquidColumn(renderer, cx, 326, kColW, 176, level, i);
+    const auto style = i == todayIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+    textCentered(renderer, SMALL_FONT_ID, cx, kColW, 510, I18N.get(DAY_LABELS[i]), true, style);
+  }
+
+  // Books finished, and the busiest time of day. The design's "best hour" needs hourly totals; the
+  // firmware keeps four time-of-day buckets, so the tile names the busiest bucket and draws the four.
+  const int tileW = (cw - 24) / 2;
+  raised(renderer, x0, 580, tileW, 140, 26);
+  snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(stats.completedBooks));
+  text(renderer, kDigitsFontId, x0 + 20, 590, buf);
+  text(renderer, SMALL_FONT_ID, x0 + 22, 676, tr(STR_RELIEF_BOOKS_FINISHED));
+
+  const int tx = x0 + tileW + 24;
+  raised(renderer, tx, 580, cw - tileW - 24, 140, 26);
+  const auto best = std::max_element(stats.timeOfDaySeconds.begin(), stats.timeOfDaySeconds.end());
+  const uint32_t maxBucket = *best;
+  const int bestIndex = static_cast<int>(best - stats.timeOfDaySeconds.begin());
+  const int innerW = cw - tileW - 24 - 40;
+  const std::string name = renderer.truncatedText(
+      UI_12_FONT_ID, maxBucket > 0 ? I18N.get(TIME_BUCKET_LABELS[bestIndex]) : tr(STR_RELIEF_NO_READING_YET), innerW,
+      EpdFontFamily::BOLD);
+  text(renderer, UI_12_FONT_ID, tx + 20, 594, name.c_str(), true, EpdFontFamily::BOLD);
+  if (maxBucket > 0) {
+    text(renderer, SMALL_FONT_ID, tx + 20, 628, tr(STR_RELIEF_BEST_TIME));
+    constexpr int kBarW = 22;
+    constexpr int kBarStep = 34;
+    for (int i = 0; i < static_cast<int>(TIME_BUCKET_LABELS.size()); ++i) {
+      const int barH = 6 + static_cast<int>(36.0f * stats.timeOfDaySeconds[i] / maxBucket);
+      renderer.fillRoundedRect(tx + 20 + i * kBarStep, 704 - barH, kBarW, barH, kBarW / 2,
+                               i == bestIndex ? Color::Black : Color::DarkGray);
+    }
+  }
+
+  if (showButtonHints && mappedInput) {
+    const auto labels =
+        mappedInput->mapLabels(tr(STR_EXIT), "", tr(STR_RELIEF_PREV), showNextButton ? tr(STR_RELIEF_NEXT) : "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  }
+}
+
+// Without a clock there are no dates or weekday charts: one page with the book summary and the device totals.
+void renderReliefNoRtcStatsPage(GfxRenderer& renderer, const MappedInputManager* mappedInput,
+                                const std::string& bookTitle, const BookReadingStats& bookStats,
+                                const float progressPercent, const bool hasEstimatedTimeLeft,
+                                const uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& deviceStats,
+                                const GlobalReadingStats* allDevicesStats, const bool showButtonHints) {
+  renderer.clearScreen();
+  const int W = renderer.getScreenWidth();
+  drawReliefStatsHeader(renderer, tr(STR_READING_STATS), bookTitle.c_str());
+  drawReliefBookSummary(renderer, bookStats, progressPercent, hasEstimatedTimeLeft, estimatedTimeLeftSeconds);
+
+  char hours[24];
+  char books[16];
+  char sessions[16];
+  char allHours[24];
+  formatReliefHoursMinutes(deviceStats.totalReadingSeconds, hours, sizeof(hours));
+  snprintf(books, sizeof(books), "%lu", static_cast<unsigned long>(deviceStats.completedBooks));
+  snprintf(sessions, sizeof(sessions), "%lu", static_cast<unsigned long>(deviceStats.totalSessions));
+  ReliefStatsRow rows[4] = {{tr(STR_RELIEF_ROW_HOURS_READ), hours},
+                            {tr(STR_RELIEF_ROW_BOOKS_FINISHED), books},
+                            {tr(STR_STATS_SESSIONS_LBL), sessions},
+                            {tr(STR_STATS_ALL_DEVICES_SCREEN), allHours}};
+  int count = 3;
+  if (allDevicesStats) {
+    formatReliefHoursMinutes(allDevicesStats->totalReadingSeconds, allHours, sizeof(allHours));
+    count = 4;
+  }
+  drawReliefRowsCard(renderer, kReliefMargin, 520, W - 2 * kReliefMargin, rows, count, count > 3 ? 44 : kReliefRowH, -1,
+                     false);
+
+  if (showButtonHints && mappedInput) {
+    const auto labels = mappedInput->mapLabels(tr(STR_EXIT), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  }
+}
+
+// Edit dates: the two dates as rows (the one being edited sinks) and a picker card for it. Columns follow
+// the edit order (month, day, year) so the focus moves left to right; the design shows day first.
+void renderReliefEditDatesPage(GfxRenderer& renderer, const MappedInputManager* mappedInput,
+                               const std::string& bookTitle, const BookReadingStats& stats, const int selectedField,
+                               const bool showButtonHints) {
+  using namespace relief;
+  renderer.clearScreen();
+  const int W = renderer.getScreenWidth();
+  const int x0 = kReliefMargin;
+  const int cw = W - 2 * kReliefMargin;
+  drawReliefStatsHeader(renderer, tr(STR_RELIEF_EDIT_DATES), bookTitle.c_str());
+
+  const bool editingFinished = selectedField >= 3;
+  const bool hasFinished = stats.isCompleted && stats.finishedDate.isValid();
+  char started[24];
+  char finished[24];
+  formatReadingStatsShortDate(stats.startDate, started, sizeof(started));
+  if (hasFinished) {
+    formatReadingStatsShortDate(stats.finishedDate, finished, sizeof(finished));
+  } else {
+    snprintf(finished, sizeof(finished), "%s", tr(STR_RELIEF_NOT_YET));
+  }
+  const ReliefStatsRow rows[2] = {{tr(STR_STATS_STARTED), started}, {tr(STR_RELIEF_FINISHED), finished}};
+  drawReliefRowsCard(renderer, x0, 112, cw, rows, 2, kReliefRowH, editingFinished ? 1 : 0, true);
+
+  lifted(renderer, x0, 300, cw, 330, 28);
+  textCentered(renderer, UI_12_FONT_ID, x0, cw, 318,
+               editingFinished ? tr(STR_RELIEF_FINISHED_ON) : tr(STR_RELIEF_STARTED_ON), true, EpdFontFamily::BOLD);
+  const ReadingStatsDate& date = editingFinished ? stats.finishedDate : stats.startDate;
+  const bool showDate = editingFinished ? hasFinished : date.isValid();
+  char month[8];
+  char day[8];
+  char year[8];
+  formatReadingStatsMonthToken(showDate ? date : ReadingStatsDate{}, month, sizeof(month));
+  snprintf(day, sizeof(day), "%s", "-");
+  snprintf(year, sizeof(year), "%s", "-");
+  if (showDate) {
+    snprintf(day, sizeof(day), "%u", static_cast<unsigned>(date.day));
+    snprintf(year, sizeof(year), "%u", static_cast<unsigned>(date.year));
+  }
+  const char* labels[3] = {tr(STR_RELIEF_MONTH), tr(STR_RELIEF_DAY), tr(STR_RELIEF_YEAR)};
+  const char* values[3] = {month, day, year};
+  constexpr int kColW = 128;
+  const int colStep = (cw - 40 - kColW) / 2;
+  const int focusColumn = selectedField % 3;
+  for (int i = 0; i < 3; ++i) {
+    const int cx = x0 + 20 + i * colStep;
+    const bool focused = i == focusColumn;
+    const int d = focused ? 1 : 0;
+    textCentered(renderer, SMALL_FONT_ID, cx, kColW, 364, labels[i]);
+    roundKey(renderer, cx + kColW / 2, 420, 44, &icon_chevron_up_24, false, false);
+    surface(renderer, cx, 452, kColW, 64, 22, focused);
+    textCentered(renderer, UI_12_FONT_ID, cx + d, kColW, 468 + d, values[i], true, EpdFontFamily::BOLD);
+    roundKey(renderer, cx + kColW / 2, 556, 44, &icon_chevron_down_24, false, false);
+  }
+
+  if (showButtonHints && mappedInput) {
+    sideNubs(renderer, true, true);
+    const auto hints = mappedInput->mapLabels(tr(STR_SAVE), tr(STR_NEXT_FIELD), "-", "+");
+    GUI.drawButtonHints(renderer, hints.btn1, hints.btn2, hints.btn3, hints.btn4, true);
+  }
+}
+
 }  // namespace
 
 void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const std::string& bookTitle,
                             const BookReadingStats& stats, const float progressPercent, const bool hasEstimatedTimeLeft,
                             const uint32_t estimatedTimeLeftSeconds, const bool showButtonHints,
                             const bool showEditButton, const bool showMoreButton) {
+  if (reliefStats()) {
+    renderReliefBookStatsPage(renderer, mappedInput, bookTitle, stats, progressPercent, hasEstimatedTimeLeft,
+                              estimatedTimeLeftSeconds, showButtonHints, showEditButton, showMoreButton);
+    return;
+  }
   renderer.clearScreen();
   const bool showRtcStats = shouldShowRtcBasedStats();
   const auto& metrics = UITheme::getInstance().getMetrics();
@@ -574,6 +931,10 @@ void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* map
 
 void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const char* screenTitle,
                            const GlobalReadingStats& stats, const bool showButtonHints, const bool showMoreButton) {
+  if (reliefStats()) {
+    renderReliefDeviceStatsPage(renderer, mappedInput, screenTitle, stats, showButtonHints, showMoreButton);
+    return;
+  }
   renderer.clearScreen();
   const bool showRtcStats = shouldShowRtcBasedStats();
   const auto& metrics = UITheme::getInstance().getMetrics();
@@ -638,6 +999,11 @@ void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManage
                                   const float progressPercent, const bool hasEstimatedTimeLeft,
                                   const uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& deviceStats,
                                   const GlobalReadingStats* allDevicesStats, const bool showButtonHints) {
+  if (reliefStats()) {
+    renderReliefNoRtcStatsPage(renderer, mappedInput, bookTitle, bookStats, progressPercent, hasEstimatedTimeLeft,
+                               estimatedTimeLeftSeconds, deviceStats, allDevicesStats, showButtonHints);
+    return;
+  }
   renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto& layout = getNoRtcCombinedLayout(renderer, mappedInput, showButtonHints, allDevicesStats != nullptr);
@@ -686,6 +1052,10 @@ void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManage
 
 void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const std::string& bookTitle,
                              const BookReadingStats& stats, const int selectedField, const bool showButtonHints) {
+  if (reliefStats()) {
+    renderReliefEditDatesPage(renderer, mappedInput, bookTitle, stats, selectedField, showButtonHints);
+    return;
+  }
   renderer.clearScreen();
   if (mappedInput && mappedInput->hasTouchHardware()) {
     TouchHeaderBackButton::drawCompact(renderer, tr(STR_READING_STATS), false);
@@ -703,7 +1073,7 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
   const std::string visibleTitle =
       renderer.truncatedText(UI_12_FONT_ID, bookTitle.c_str(), pageWidth - 80, EpdFontFamily::BOLD);
   renderer.drawCenteredText(UI_12_FONT_ID, 96, visibleTitle.c_str(), true, EpdFontFamily::BOLD);
-  drawStatsCardFrame(renderer, cardX, cardY, cardW, cardH);
+  renderer.drawRect(cardX, cardY, cardW, cardH);
 
   const int sectionGap = 104;
   const int row1Y = cardY + 66;

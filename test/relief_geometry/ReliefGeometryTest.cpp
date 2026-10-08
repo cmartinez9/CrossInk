@@ -2,6 +2,7 @@
 
 #include "ReliefGeometry.h"
 
+using relief::arcReach;
 using relief::clampRadius;
 using relief::followWindow;
 using relief::liquidSurfaceY;
@@ -33,6 +34,31 @@ TEST(ReliefGeometry, ShortWellsGetASmallerCrest) {
   // A 50 px well has a 2 px amplitude (4 % of its height), so the crest never crosses the well.
   for (int column = 0; column < 46; ++column) {
     EXPECT_NEAR(liquidSurfaceY(0, 50, 0.5f, column, 0), 25, 2);
+  }
+}
+
+TEST(ReliefGeometry, CrestFlattensNearEmptyAndFull) {
+  // A nearly empty well keeps its liquid on the floor (no lump above a 2 px meniscus), and a full well
+  // reaches its top in every column (no white sliver under the top edge).
+  constexpr int top = 0, h = 160;
+  for (int column = 0; column < 46; ++column) {
+    EXPECT_GE(liquidSurfaceY(top, h, 0.02f, column, 0), top + h - 3 - 2);
+    EXPECT_EQ(liquidSurfaceY(top, h, 1.0f, column, 0), top);
+    EXPECT_EQ(liquidSurfaceY(top, h, 0.0f, column, 0), top + h);
+  }
+}
+
+TEST(ReliefGeometry, ArcReachMatchesTheCircle) {
+  EXPECT_EQ(arcReach(10, 0), 10);
+  EXPECT_EQ(arcReach(10, 10), 0);
+  EXPECT_EQ(arcReach(10, 11), -1);
+  EXPECT_EQ(arcReach(10, -6), 8);  // 6^2 + 8^2 = 10^2
+  for (int r = 1; r < 60; ++r) {
+    for (int a = 0; a <= r; ++a) {
+      const int d = arcReach(r, a);
+      EXPECT_LE(a * a + d * d, r * r);
+      EXPECT_GT(a * a + (d + 1) * (d + 1), r * r);
+    }
   }
 }
 

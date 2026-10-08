@@ -48,4 +48,5 @@
 
 // Relief theme display faces.
 #include <builtinFonts/relief_clock_46.h>
+#include <builtinFonts/relief_digits_31.h>
 #include <builtinFonts/relief_title_16.h>

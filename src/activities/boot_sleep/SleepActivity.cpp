@@ -40,6 +40,7 @@
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
+#include "components/icons/reliefIcons.h"
 #include "components/themes/dashboard/DashboardTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "components/themes/relief/ReliefKit.h"
@@ -906,7 +907,9 @@ void SleepActivity::renderReadingStatsSleepScreen() const {
 
 void SleepActivity::renderMinimalSleepScreen() const {
 #if CROSSINK_THEME_RELIEF_ONLY
-  return renderReliefSleepScreen(false);
+  // Relief-only images: the Relief cover card on the X3, the plain cover on the X4 (no Minimal theme).
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) return renderReliefSleepScreen(false);
+  return renderCoverSleepScreen();
 #else
   const std::string& path = currentBookPath.empty() ? APP_STATE.openEpubPath : currentBookPath;
   if (path.empty()) {
@@ -931,7 +934,9 @@ void SleepActivity::renderMinimalSleepScreen() const {
 
 void SleepActivity::renderMinimalStatsSleepScreen() const {
 #if CROSSINK_THEME_RELIEF_ONLY
-  return renderReliefSleepScreen(true);
+  // Relief-only images: the Relief stats card on the X3, the reading stats page on the X4.
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) return renderReliefSleepScreen(true);
+  return renderReadingStatsSleepScreen();
 #else
   const std::string& path = currentBookPath.empty() ? APP_STATE.openEpubPath : currentBookPath;
   if (path.empty()) {
@@ -956,7 +961,9 @@ void SleepActivity::renderMinimalStatsSleepScreen() const {
 
 void SleepActivity::renderDashboardSleepScreen() const {
 #if CROSSINK_THEME_RELIEF_ONLY
-  return renderReliefSleepScreen(true);
+  // Relief-only images: the Relief stats card on the X3, the reading stats page on the X4.
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) return renderReliefSleepScreen(true);
+  return renderReadingStatsSleepScreen();
 #else
   const std::string& path = currentBookPath.empty() ? APP_STATE.openEpubPath : currentBookPath;
   if (path.empty()) {
@@ -1355,31 +1362,44 @@ void SleepActivity::renderReliefSleepScreen(const bool withStats) const {
   const float p = book.title.empty() ? -1.0f : RecentBookProgress::loadCachedEpubPercent(book);
   char buf[32];
   if (withStats) {
-    // Reading stats layout: the book on a raised card, then total time and the streak.
-    textCentered(renderer, kTitleFontId, 0, W, 62, tr(STR_SLEEPING));
-    raised(renderer, 40, 140, W - 80, 220, 28);
-    drawCoverBmp(renderer, thumb.c_str(), 64, 164, coverW, coverH, 10);
+    // Reading stats (Relief sleep board): the book on a raised card, then total time and the streak. The
+    // design's "Chapter 4 of 9" line needs the reader's chapter position, so the author is shown instead.
+    textCentered(renderer, kTitleFontId, 0, W, 66, tr(STR_RELIEF_SLEEPING));
+    textCentered(renderer, SMALL_FONT_ID, 0, W, 116, tr(STR_RELIEF_PRESS_POWER_TO_WAKE));
+    raised(renderer, 40, 170, W - 80, 220, 28);
+    drawCoverBmp(renderer, thumb.c_str(), 64, 194, coverW, coverH, 10);
     const int tx = 200, tw = W - 80 - (tx - 40) - 24;
     const std::string t = renderer.truncatedText(UI_12_FONT_ID, book.title.c_str(), tw, EpdFontFamily::BOLD);
-    text(renderer, UI_12_FONT_ID, tx, 168, t.c_str(), true, EpdFontFamily::BOLD);
+    text(renderer, UI_12_FONT_ID, tx, 196, t.c_str(), true, EpdFontFamily::BOLD);
     const std::string a = renderer.truncatedText(UI_10_FONT_ID, book.author.c_str(), tw);
-    text(renderer, UI_10_FONT_ID, tx, 202, a.c_str());
-    tube(renderer, tx, 250, tw, 12, p < 0 ? 0.0f : p / 100.0f);
-    snprintf(buf, sizeof(buf), "%.0f%%", p < 0 ? 0.0f : p);
-    text(renderer, SMALL_FONT_ID, tx, 272, buf);
+    text(renderer, UI_10_FONT_ID, tx, 232, a.c_str());
+    tube(renderer, tx, 280, tw, 12, p < 0 ? 0.0f : p / 100.0f);
+    const BookReadingStats bookStats = path.empty() ? BookReadingStats{} : loadBookStatsForPath(path);
+    if (!bookStats.isCompleted && bookStats.estimatedTimeLeftSeconds > 0) {
+      char left[24];
+      formatCompactReadingDuration(bookStats.estimatedTimeLeftSeconds, left, sizeof(left));
+      snprintf(buf, sizeof(buf), "%.0f%% \xC2\xB7 %s %s", p < 0 ? 0.0f : p, left, tr(STR_RELIEF_LEFT));
+    } else {
+      snprintf(buf, sizeof(buf), "%.0f%%", p < 0 ? 0.0f : p);
+    }
+    text(renderer, SMALL_FONT_ID, tx, 302, buf);
+
     const GlobalReadingStats globalStats = GlobalReadingStats::load();
     const int tileW = (W - 104) / 2;
-    raised(renderer, 40, 390, tileW, 150, 26);
+    raised(renderer, 40, 420, tileW, 150, 26);
     snprintf(buf, sizeof(buf), "%lu:%02lu", static_cast<unsigned long>(globalStats.totalReadingSeconds / 3600),
              static_cast<unsigned long>((globalStats.totalReadingSeconds / 60) % 60));
-    text(renderer, kTitleFontId, 60, 410, buf);
-    text(renderer, SMALL_FONT_ID, 62, 470, tr(STR_RELIEF_HOURS_READ));
-    raised(renderer, 64 + tileW, 390, tileW, 150, 26);
+    // Mid-size digits; a long total (three-digit hours) drops to the title face so it stays in the tile.
+    const int hoursFont = textWidth(renderer, kDigitsFontId, buf) <= tileW - 40 ? kDigitsFontId : kTitleFontId;
+    text(renderer, hoursFont, 60, hoursFont == kDigitsFontId ? 434 : 456, buf);
+    text(renderer, SMALL_FONT_ID, 62, 520, tr(STR_RELIEF_HOURS_READ));
+    const int sx = 64 + tileW;
+    raised(renderer, sx, 420, tileW, 150, 26);
+    roundKey(renderer, sx + 50, 470, 52, &icon_flame_24, true, false);
     ReadingStatsDateTime now{};
     const uint16_t streak = getCurrentLocalReadingStatsDateTime(now) ? globalStats.currentReadingStreak(&now.date) : 0;
     snprintf(buf, sizeof(buf), tr(STR_RELIEF_DAYS_COUNT), static_cast<unsigned>(streak));
-    text(renderer, kTitleFontId, 84 + tileW, 410, buf);
-    text(renderer, SMALL_FONT_ID, 86 + tileW, 470, tr(STR_RELIEF_STREAK));
+    text(renderer, UI_12_FONT_ID, sx + 24, 514, buf, true, EpdFontFamily::BOLD);
   } else {
     lifted(renderer, (W - kCoverW) / 2 - 20, 60, kCoverW + 40, kCoverH + 40, 34);
     drawCoverBmp(renderer, thumb.c_str(), (W - kCoverW) / 2, 80, kCoverW, kCoverH, 18);

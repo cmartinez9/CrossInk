@@ -13,7 +13,8 @@
 #define UI_12_FONT_ID (1544960787)
 #define SMALL_FONT_ID (1406075677)
 #define RELIEF_TITLE_FONT_ID (-334089324)
-#define RELIEF_CLOCK_FONT_ID (-736584821)
+#define RELIEF_CLOCK_FONT_ID (18572307)
+#define RELIEF_DIGITS_FONT_ID (314844292)
 
 // Font ID 0 is reserved as the "not found" sentinel.
 // Guard against any hash accidentally producing 0.
@@ -30,3 +31,4 @@ static_assert(UI_12_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(SMALL_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(RELIEF_TITLE_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(RELIEF_CLOCK_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(RELIEF_DIGITS_FONT_ID != 0, "Font ID collision with sentinel");

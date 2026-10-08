@@ -237,6 +237,8 @@ EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont, nullptr, nullptr, 
 // Relief theme display faces: digits-only clock and ASCII screen titles (Inter Bold, 1-bit).
 EpdFont reliefClockFont(&relief_clock_46);
 EpdFontFamily reliefClockFontFamily(&reliefClockFont);
+EpdFont reliefDigitsFont(&relief_digits_31);
+EpdFontFamily reliefDigitsFontFamily(&reliefDigitsFont);
 EpdFont reliefTitleFont(&relief_title_16);
 EpdFontFamily reliefTitleFontFamily(&reliefTitleFont, nullptr, nullptr, nullptr, &uiSymbols10Font);
 
@@ -1193,6 +1195,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(RELIEF_CLOCK_FONT_ID, reliefClockFontFamily);
+  renderer.insertFont(RELIEF_DIGITS_FONT_ID, reliefDigitsFontFamily);
   renderer.insertFont(RELIEF_TITLE_FONT_ID, reliefTitleFontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
   if (loadReaderResources) {

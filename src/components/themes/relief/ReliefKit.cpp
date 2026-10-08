@@ -82,15 +82,25 @@ void tube(const GfxRenderer& r, int x, int y, int w, int h, float level, bool kn
 
 void liquidColumn(const GfxRenderer& r, int x, int y, int w, int h, float level, int phase) {
   // A groove whose ink rises from the bottom with a sine crest (amplitude 5 px, wavelength 46 px).
-  const int rad = w / 2;
+  const int rad = clampRadius(w / 2, w, h);
   r.fillRoundedRect(x, y, w, h, rad, Color::Black);
   r.fillRoundedRect(x + 2, y + 2, w - 2, h - 2, clampRadius(rad, w - 2, h - 2), Color::LightGray);
   r.fillRoundedRect(x + 4, y + 4, w - 4, h - 4, clampRadius(rad, w - 4, h - 4), Color::White);
+  // Each column of ink is clipped to the well's own rounded ends (corner centres as fillRoundedRect
+  // places them), so nothing is painted outside the well. A corner mask would also wipe whatever
+  // surrounds the well's bounding box, such as the pill outline and its shadow.
+  const int leftCx = x + rad, rightCx = x + w - rad - 1;
+  const int topCy = y + rad, bottomCy = y + h - rad - 1;
   for (int i = 1; i < w - 1; ++i) {
-    const int top = std::max(y, liquidSurfaceY(y, h, level, i, phase));
-    if (top < y + h) r.fillRect(x + i, top, 1, y + h - top, true);
+    const int px = x + i;
+    const int along = px < leftCx ? leftCx - px : (px > rightCx ? px - rightCx : 0);
+    const int reach = arcReach(rad, along);
+    if (reach < 0) continue;
+    const int colTop = along > 0 ? topCy - reach : y;
+    const int colBottom = along > 0 ? bottomCy + reach : y + h - 1;
+    const int top = std::max(colTop, liquidSurfaceY(y, h, level, i, phase));
+    if (top <= colBottom) r.fillRect(px, top, 1, colBottom - top + 1, true);
   }
-  r.maskRoundedRectOutsideCorners(x, y, w, h, rad, Color::White);
   r.drawRoundedRect(x, y, w, h, 1, rad, true);
 }
 
@@ -177,6 +187,27 @@ void textRight(const GfxRenderer& r, int fontId, int right, int y, const char* t
                EpdFontFamily::Style style) {
   if (!text || !*text) return;
   r.drawText(fontId, right - r.getTextWidth(fontId, text, style), y, text, black, style);
+}
+
+int trackedTextWidth(const GfxRenderer& r, const int fontId, const char* text, const int tracking) {
+  if (!text || !*text) return 0;
+  int w = 0;
+  int n = 0;
+  for (const char* p = text; *p; ++p, ++n) {
+    const char glyph[2] = {*p, 0};
+    w += r.getTextWidth(fontId, glyph);
+  }
+  return w + (n - 1) * tracking;
+}
+
+void trackedText(const GfxRenderer& r, const int fontId, int x, const int y, const char* text, const int tracking) {
+  if (!text) return;
+  // ASCII only (digits and punctuation): one byte per glyph.
+  for (const char* p = text; *p; ++p) {
+    const char glyph[2] = {*p, 0};
+    r.drawText(fontId, x, y, glyph);
+    x += r.getTextWidth(fontId, glyph) + tracking;
+  }
 }
 
 void greyText(const GfxRenderer& r, int fontId, int x, int y, const char* text, EpdFontFamily::Style style) {
@@ -285,12 +316,21 @@ void liquidBar(const GfxRenderer& r, int x, int y, int w, int h, float level, in
   const int fill = static_cast<int>(w * lv);
   if (fill <= 0) return;
   constexpr float kTwoPi = 6.2831853f;
+  // Rows are clipped to the bar's rounded ends, like liquidColumn, so nothing lands outside the groove.
+  const int rad = clampRadius(h / 2, w, h);
+  const int topCy = y + rad, bottomCy = y + h - rad - 1;
   for (int j = 1; j < h - 1; ++j) {
-    const int end = std::min(w, static_cast<int>(fill + 4 * std::sin(kTwoPi * j / 22.0f + phase * 0.9f)));
-    if (end > 0) r.fillRect(x, y + j, end, 1, true);
+    const int py = y + j;
+    const int along = py < topCy ? topCy - py : (py > bottomCy ? py - bottomCy : 0);
+    const int reach = arcReach(rad, along);
+    if (reach < 0) continue;
+    const int rowLeft = along > 0 ? x + rad - reach : x;
+    const int rowRight = along > 0 ? x + w - rad - 1 + reach : x + w - 1;
+    const int end =
+        std::min(rowRight + 1, x + static_cast<int>(fill + 4 * std::sin(kTwoPi * j / 22.0f + phase * 0.9f)));
+    if (end > rowLeft) r.fillRect(rowLeft, py, end - rowLeft, 1, true);
   }
-  r.maskRoundedRectOutsideCorners(x, y, w, h, h / 2, Color::White);
-  r.drawRoundedRect(x, y, w, h, 1, h / 2, true);
+  r.drawRoundedRect(x, y, w, h, 1, rad, true);
 }
 
 void fillShade(const GfxRenderer& r, int x, int y, int w, int h, int radius) {
