@@ -9,6 +9,9 @@ class GfxRenderer;
 class ThemeStub {
  public:
   void drawButtonHints(const GfxRenderer&, const char*, const char*, const char*, const char*, bool) const {}
+  void setPressEcho(const bool on) const {
+    if (on) ++echoFrames;
+  }
   void drawOptionPopup(const GfxRenderer&, const char*, const std::vector<std::string>&, const int selectedIndex, bool,
                        const char*, const char*, bool, int, const char*, const char*, const std::vector<bool>&,
                        const int firstOptionIndex) const {
@@ -18,10 +21,12 @@ class ThemeStub {
 
   int getLastSelectedIndex() const { return lastSelectedIndex; }
   int getLastFirstOptionIndex() const { return lastFirstOptionIndex; }
+  int getEchoFrames() const { return echoFrames; }
 
  private:
   mutable int lastSelectedIndex = -1;
   mutable int lastFirstOptionIndex = -1;
+  mutable int echoFrames = 0;
 };
 
 class UITheme {

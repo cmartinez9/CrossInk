@@ -108,6 +108,57 @@ TEST(OptionPopup, PowerConfirmSelectionSuppressesItsPowerRelease) {
   EXPECT_TRUE(input.wasReleased(MappedInputManager::Button::Power));
 }
 
+TEST(OptionPopup, PressEchoShowsPressedOptionBeforeSelecting) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  int selections = 0;
+  int updates = 0;
+
+  const char* options[] = {"Sleep"};
+  popup.show("Quick Actions", options, 1, 0, [&](const int) { ++selections; });
+  popup.setPressEcho(true);
+  fakeMillisNow() = 1000;
+
+  input.injectPowerConfirmPress();
+  EXPECT_TRUE(popup.handleInput(input, [&] { ++updates; }));
+  EXPECT_EQ(selections, 0);
+  EXPECT_EQ(updates, 1);
+  const int echoFramesBefore = GUI.getEchoFrames();
+  popup.render(renderer);
+  EXPECT_EQ(GUI.getEchoFrames(), echoFramesBefore + 1);
+
+  fakeMillisNow() = 1499;
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  EXPECT_EQ(selections, 0);
+  EXPECT_TRUE(popup.isActive());
+
+  // Power is still held after the echo, so its release must not re-run the shortcut.
+  fakeMillisNow() = 1500;
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  EXPECT_EQ(selections, 1);
+  EXPECT_FALSE(popup.isActive());
+  EXPECT_TRUE(input.isPowerReleaseSuppressed());
+}
+
+TEST(OptionPopup, PressEchoDoesNotLeakToNextPopup) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  int selections = 0;
+
+  const char* options[] = {"Sleep"};
+  popup.show("Quick Actions", options, 1, 0, [](const int) {});
+  popup.setPressEcho(true);
+  popup.show("Other", options, 1, 0, [&](const int) { ++selections; });
+
+  input.injectPowerConfirmPress();
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  EXPECT_EQ(selections, 1);
+}
+
 TEST(OptionPopup, DisabledTouchOptionDoesNotSelect) {
   GfxRenderer renderer;
   HalGPIO gpio;

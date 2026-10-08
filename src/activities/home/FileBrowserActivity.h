@@ -47,6 +47,10 @@ class FileBrowserActivity final : public Activity {
   ButtonNavigator buttonNavigator;
 
   size_t selectorIndex = 0;
+  // Relief: first visible row of the card list, and whether the Confirm hint shows the held state.
+  int reliefTop = 0;
+  bool reliefHoldShown = false;
+  void renderReliefList(int headerBottom);
   bool showFileSelection = true;
 
   bool lockLongPressBack = false;

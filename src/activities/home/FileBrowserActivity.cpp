@@ -37,6 +37,8 @@
 #include "components/UiAppHelpers.h"
 #include "components/icons/listIcons.h"
 #include "components/themes/minimal/MinimalTheme.h"
+#include "components/themes/relief/ReliefKit.h"
+#include "components/themes/relief/ReliefTheme.h"
 #include "fontIds.h"
 #include "util/BookMoveUtils.h"
 
@@ -44,6 +46,7 @@ namespace fui = freeink::ui;
 
 namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
+constexpr unsigned long HOLD_FEEDBACK_MS = 500;
 constexpr unsigned long COMPLETED_FEEDBACK_MS = 1000;
 constexpr int ROOT_HINT_GAP = 20;
 constexpr size_t NAME_BUFFER_SIZE = 500;
@@ -1096,6 +1099,16 @@ void FileBrowserActivity::loop() {
   }
 
   const int listSize = static_cast<int>(entryCount());
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) {
+    // Relief hold feedback: the Confirm hint deepens halfway through the 1 s hold that opens actions.
+    const bool showHold = mode == Mode::Books && listSize > 0 && !longPressConfirmHandled &&
+                          mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
+                          mappedInput.getHeldTime() >= HOLD_FEEDBACK_MS;
+    if (showHold != reliefHoldShown) {
+      reliefHoldShown = showHold;
+      requestUpdate();
+    }
+  }
   if (entryCount() > 0) {
     const std::string entry = entryNameAt(selectorIndex);
     const bool isDirectory = (entry.back() == '/');
@@ -1474,6 +1487,8 @@ void FileBrowserActivity::render(RenderLock&&) {
     if (!listNav.consumeRebuildNeeded()) break;
   }
   uiReady = true;
+  const bool relief = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF && !mappedInput.hasTouchHardware();
+  if (relief) renderReliefList(header.y + header.height);
 
   const size_t visibleEntries = entryCount();
   const auto backLabel = (basepath == "/") ? (mode == Mode::Books ? mappedInput.withBackArrow(tr(STR_HOME))
@@ -1487,7 +1502,9 @@ void FileBrowserActivity::render(RenderLock&&) {
   const auto labels = mappedInput.mapLabels(
       backLabel, confirmLabel, visibleEntries == 0 || mode == Mode::PickDirectory ? "" : tr(STR_DIR_UP),
       mode == Mode::PickDirectory ? tr(STR_SELECT) : (visibleEntries == 0 ? "" : tr(STR_DIR_DOWN)));
+  GUI.setHoldFeedback(reliefHoldShown);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.setHoldFeedback(false);
 
   if (!mappedInput.hasTouch() && mode == Mode::Books && basepath == "/") {
     const int pathLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
@@ -1520,4 +1537,70 @@ size_t FileBrowserActivity::findEntry(const std::string& name) {
   for (size_t i = 0; i < files.size(); i++)
     if (files[i] == name) return i;
   return 0;
+}
+
+// Relief: FreeInkUI still lays out the list (and keeps its navigation in sync) underneath; this repaints
+// the entries as one raised card of icon rows whose focused row sinks into a pressed well.
+void FileBrowserActivity::renderReliefList(const int headerBottom) {
+  using namespace relief;
+  constexpr int kRowH = 56, kCardX = 20;
+  const int W = renderer.getScreenWidth();
+  const int H = renderer.getScreenHeight();
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int top = headerBottom + 8;
+  const int bottom = H - metrics.buttonHintsHeight - renderer.getLineHeight(SMALL_FONT_ID) - 24;
+  renderer.fillRect(0, top - 8, W, H - metrics.buttonHintsHeight - top + 8, false);
+  const int count = static_cast<int>(entryCount());
+  if (count == 0) return;
+  const int rows = std::max(1, std::min(count, (bottom - top - 16) / kRowH));
+  const int sel = static_cast<int>(selectorIndex);
+  reliefTop = followWindow(reliefTop, sel, rows, count);
+  const int cardW = W - 2 * kCardX - 8;
+  raised(renderer, kCardX, top, cardW, rows * kRowH + 16, 24);
+  const int lh = renderer.getLineHeight(UI_10_FONT_ID);
+  for (int i = 0; i < rows; ++i) {
+    const int idx = reliefTop + i;
+    if (idx >= count) break;
+    std::string name = entryNameAt(static_cast<size_t>(idx));
+    const bool isDir = !name.empty() && name.back() == '/';
+    if (isDir) name.pop_back();
+    const int ry = top + 8 + i * kRowH;
+    const bool f = idx == sel;
+    const int d = f ? 1 : 0;
+    if (f) {
+      pressed(renderer, kCardX + 8, ry, cardW - 16, kRowH - 4, 20);
+    } else if (i < rows - 1 && idx + 1 != sel) {
+      for (int dx = kCardX + 24; dx < kCardX + cardW - 24; dx += 2) renderer.drawPixel(dx, ry + kRowH - 2, true);
+    }
+    UIIcon kind = UIIcon::File;
+    if (isDir) {
+      kind = UIIcon::Folder;
+    } else if (FsHelpers::hasEpubExtension(name) || FsHelpers::hasXtcExtension(name)) {
+      kind = UIIcon::Book;
+    } else if (FsHelpers::hasTxtExtension(name) || FsHelpers::hasMarkdownExtension(name)) {
+      kind = UIIcon::Text;
+    } else if (FsHelpers::hasBmpExtension(name) || FsHelpers::hasPngExtension(name)) {
+      kind = UIIcon::Image;
+    }
+    if (const auto* ic = ReliefTheme::icon(kind, 24)) {
+      drawLucideIcon(renderer, *ic, kCardX + 22 + d, ry + (kRowH - 4 - 24) / 2 + d, true);
+    }
+    const auto style = f ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+    const std::string label = renderer.truncatedText(UI_10_FONT_ID, name.c_str(), cardW - 110, style);
+    text(renderer, UI_10_FONT_ID, kCardX + 58 + d, ry + (kRowH - 4 - lh) / 2 + d, label.c_str(), true, style);
+    if (isDir) {
+      const int cx = kCardX + cardW - 26 + d, cy = ry + (kRowH - 4) / 2 + d;
+      renderer.drawLine(cx - 5, cy - 6, cx, cy, 2, true);
+      renderer.drawLine(cx, cy, cx - 5, cy + 6, 2, true);
+    }
+  }
+  if (count > rows) {
+    // A thin position track at the card's right edge.
+    const int trackY = top + 12, trackH = rows * kRowH - 8;
+    renderer.fillRectDither(kCardX + cardW - 8, trackY, 3, trackH, Color::LightGray);
+    const int thumbH = std::max(16, trackH * rows / count);
+    const int thumbY = trackY + (trackH - thumbH) * reliefTop / std::max(1, count - rows);
+    renderer.fillRect(kCardX + cardW - 8, thumbY, 3, thumbH, true);
+  }
+  sideNubs(renderer, true, true);
 }

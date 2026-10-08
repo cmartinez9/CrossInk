@@ -34,6 +34,7 @@
 #include "components/UiAppHelpers.h"
 #include "components/icons/libraryIcons.h"
 #include "components/icons/listIcons.h"
+#include "components/themes/relief/ReliefKit.h"
 
 namespace fui = freeink::ui;
 
@@ -41,6 +42,8 @@ namespace {
 constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_CONTROL = 2;
 constexpr unsigned long LONG_PRESS_MS = 1000;
+// Relief hold feedback: the Confirm hint deepens halfway through a long press.
+constexpr unsigned long HOLD_FEEDBACK_MS = 500;
 constexpr unsigned long ACTION_FEEDBACK_MS = 1000;
 constexpr int HEADER_CONTROL_SIZE = 44;
 constexpr int HEADER_CONTROL_GAP = 10;
@@ -735,6 +738,14 @@ void LibraryActivity::queueInput(const LibraryInputBuffer::Type type, const int 
 void LibraryActivity::latchInput() {
   using Type = LibraryInputBuffer::Type;
   const bool confirmHeld = mappedInput.isPressed(MappedInputManager::Button::Confirm);
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) {
+    const bool showHold = confirmHeld && !ignoreConfirmRelease && !confirmLongPressCaptured &&
+                          selection >= CONTROL_COUNT && mappedInput.getHeldTime() >= HOLD_FEEDBACK_MS;
+    if (showHold != reliefHoldShown) {
+      reliefHoldShown = showHold;
+      requestUpdate();
+    }
+  }
   if (ignoreConfirmRelease || confirmLongPressCaptured) {
     (void)mappedInput.wasReleased(MappedInputManager::Button::Confirm);
     if (!confirmHeld) {
@@ -1429,6 +1440,9 @@ void LibraryActivity::render(RenderLock&&) {
     if (!listNav.consumeRebuildNeeded()) break;
   }
   uiReady = true;
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF && !gridEnabled() && !mappedInput.hasTouchHardware()) {
+    renderReliefList();  // Relief: repaint the list as raised book cards
+  }
   if (actionPopup.processRender(renderer, mappedInput)) return;
   const char* confirmLabel = !mappedInput.hasTouchHardware() && rowCount() == 0 ? ""
                              : selection < CONTROL_COUNT                        ? tr(STR_SELECT)
@@ -1437,17 +1451,20 @@ void LibraryActivity::render(RenderLock&&) {
       mappedInput.mapLabels(mappedInput.withBackArrow(query.empty() ? tr(STR_HOME) : tr(STR_BACK)), confirmLabel,
                             mappedInput.hasTouchHardware() ? tr(STR_DIR_UP) : tr(STR_SORT),
                             mappedInput.hasTouchHardware() ? tr(STR_DIR_DOWN) : tr(STR_MENU));
+  GUI.setHoldFeedback(reliefHoldShown);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.setHoldFeedback(false);
   char footer[32];
   snprintf(footer, sizeof(footer), tr(STR_LIBRARY_FILES_COUNT), static_cast<unsigned>(rowCount()));
   int bounds[4]{};
   renderer.getOrientedViewableTRBL(&bounds[0], &bounds[1], &bounds[2], &bounds[3]);
   const int buttonHintsHeight =
       mappedInput.hasTouchHardware() ? 0 : UITheme::getInstance().getMetrics().buttonHintsHeight;
-  renderer.drawCenteredText(SMALL_FONT_ID,
-                            renderer.getScreenHeight() - bounds[2] - buttonHintsHeight -
-                                (FOOTER_HEIGHT + renderer.getLineHeight(SMALL_FONT_ID)) / 2,
-                            footer);
+  if (SETTINGS.uiTheme != CrossPointSettings::UI_THEME::RELIEF)
+    renderer.drawCenteredText(SMALL_FONT_ID,
+                              renderer.getScreenHeight() - bounds[2] - buttonHintsHeight -
+                                  (FOOTER_HEIGHT + renderer.getLineHeight(SMALL_FONT_ID)) / 2,
+                              footer);
   if (pendingCacheDeletedFeedback) GUI.drawPopup(renderer, tr(STR_BOOK_CACHE_DELETED));
   renderer.displayBuffer();
 }
@@ -1630,4 +1647,80 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex, const bool igno
                    return;
                }
              });
+}
+
+// The Relief library. FreeInkUI still lays out (and keeps its list
+// navigation in sync) underneath; this repaints the screen as raised book cards whose focused card
+// sinks into a pressed well, with progress as a liquid tube.
+void LibraryActivity::renderReliefList() {
+  using namespace relief;
+  constexpr int kTopY = 150, kRowH = 96, kStep = 110, kRows = 5, kCoverW = 48, kCoverH = 72;
+  const int W = renderer.getScreenWidth();
+  renderer.clearScreen();
+  GUI.drawHeader(renderer, TouchHeaderBackButton::headerRect(renderer, mappedInput), tr(STR_LIBRARY));
+  // Sort control: a pressed well holding the current order (Left opens the picker).
+  pressed(renderer, 24, 96, W - 48, 40, 20);
+  char buf[96];
+  snprintf(buf, sizeof(buf), "%s · %s", sortLabel(),
+           descending ? tr(STR_RELIEF_NEWEST_FIRST) : tr(STR_RELIEF_OLDEST_FIRST));
+  textCentered(renderer, UI_10_FONT_ID, 24, W - 48, 105, buf, true, EpdFontFamily::BOLD);
+
+  const int count = rowCount();
+  const int sel = selection - CONTROL_COUNT;
+  reliefTop = followWindow(reliefTop, sel, kRows, count);
+  if (count == 0) {
+    textCentered(renderer, UI_10_FONT_ID, 0, W, 300, tr(STR_LIBRARY));
+    return;
+  }
+  for (int i = 0; i < kRows; ++i) {
+    const int row = reliefTop + i;
+    if (row >= count) break;
+    RecentBook book;
+    if (!readBook(row, book)) continue;
+    const int y = kTopY + i * kStep;
+    const bool f = row == sel && showSelection;
+    const int d = f ? 1 : 0;
+    surface(renderer, 24, y, W - 48, kRowH, 24, f);
+    // Cover thumbnail (generated once per book at this size, then read from SD).
+    std::string thumb;
+    if (FsHelpers::hasEpubExtension(book.path)) {
+      Epub epub(book.path, "/.crosspoint");
+      const std::string base = epub.getThumbBmpPath();
+      thumb = UITheme::getCoverThumbPath(base, kCoverW, kCoverH);
+      if (!thumb.empty() && !Storage.exists(thumb.c_str()) && epub.load(true, true, Epub::XLocationLoadMode::Skip)) {
+        epub.generateThumbBmp(kCoverW, kCoverH, &renderer, SETTINGS.getReaderFontId());
+      }
+    }
+    drawCoverBmp(renderer, thumb.c_str(), 40 + d, y + 12 + d, kCoverW, kCoverH, 6);
+    const int tx = 104 + d;
+    const std::string title =
+        renderer.truncatedText(UI_10_FONT_ID, book.title.c_str(), W - 48 - 100, EpdFontFamily::BOLD);
+    text(renderer, UI_10_FONT_ID, tx, y + 12 + d, title.c_str(), true, EpdFontFamily::BOLD);
+    const std::string author = renderer.truncatedText(SMALL_FONT_ID, book.author.c_str(), W - 48 - 100);
+    text(renderer, SMALL_FONT_ID, tx, y + 38 + d, author.c_str());
+    const float p = FsHelpers::hasEpubExtension(book.path) ? RecentBookProgress::loadCachedEpubPercent(book)
+                                                           : RecentBookProgress::loadPercent(book);
+    tube(renderer, tx, y + 68 + d, 230, 10, p < 0 ? 0.0f : p / 100.0f);
+    if (p >= 99.5f) {
+      snprintf(buf, sizeof(buf), "%s", tr(STR_RELIEF_FINISHED));
+    } else if (p > 0) {
+      snprintf(buf, sizeof(buf), "%.0f%%", p);
+    } else {
+      snprintf(buf, sizeof(buf), "%s", tr(STR_RELIEF_NOT_STARTED));
+    }
+    textRight(renderer, SMALL_FONT_ID, W - 48, y + 63 + d, buf);
+  }
+  // Page position: one small dot per page of five, the current page filled.
+  const int pages = (count + kRows - 1) / kRows;
+  const int page = reliefTop / kRows;
+  if (pages > 1) {
+    const int x0 = W / 2 - (pages * 14) / 2;
+    for (int p = 0; p < pages && p < 20; ++p) {
+      if (p == page)
+        renderer.fillRoundedRect(x0 + p * 14, 706, 8, 8, 4, Color::Black);
+      else
+        renderer.drawRoundedRect(x0 + p * 14, 706, 8, 8, 1, 4, true);
+    }
+  }
+  sideNubs(renderer, true, true);
 }

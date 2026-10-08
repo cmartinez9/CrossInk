@@ -19,6 +19,12 @@
 #error "CROSSINK_APP_CAP_USB_DRIVE must be 0 or 1"
 #endif
 
+// Relief-only images keep the other UI themes' sources in the tree but never construct them, so the
+// linker drops their code. The X3/X4 `default` environment sets this; other images keep every theme.
+#ifndef CROSSINK_THEME_RELIEF_ONLY
+#define CROSSINK_THEME_RELIEF_ONLY 0
+#endif
+
 // Native simulator BoardConfig intentionally exposes only simulated runtime
 // profiles, so keep this firmware-image identity available at the app layer.
 #if defined(FREEINK_DEVICE_X4CLASSIC) && FREEINK_DEVICE_X4CLASSIC

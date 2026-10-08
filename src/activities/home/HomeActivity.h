@@ -42,6 +42,11 @@ class HomeActivity final : public Activity {
   bool recentsLoading = false;
   bool recentsLoaded = false;
   bool firstRenderDone = false;
+  bool reliefRisePending = false;      // next Home paint draws the pills empty (liquid rise, frame 1)
+  bool reliefRiseSecondFrame = false;  // then one more paint pours the level (frame 2)
+  int reliefLastMinute = -1;
+  uint32_t reliefLastClockPoll = 0;
+  uint8_t reliefTicks = 0;
   // Silent restarts keep the panel's previous frame. The first Home paint may
   // need a clean waveform so X4 panels do not diff against a WiFi screen.
   HalDisplay::RefreshMode initialRefreshMode = HalDisplay::FAST_REFRESH;
@@ -132,6 +137,10 @@ class HomeActivity final : public Activity {
   void activateCoverGridSelection();
   void loadAllBookStats();
   void loadRecentCovers(int coverHeight);
+  // Relief theme Home (soft UI) and its motion: liquid rise and the optional clock tick.
+  bool isReliefHome() const;
+  void renderReliefHome(bool allowGreyShadows = true);
+  void reliefLoop();
 
  public:
   explicit HomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

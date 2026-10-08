@@ -65,7 +65,9 @@ class EpubReaderDrawerActivity final : public Activity {
   // an unavailable text snapshot is replaced with a safe blank background.
   bool requiresFreshBackdrop() const override {
 #if CROSSINK_APP_READER_SAMPLE_PREVIEW
-    return false;  // The full-screen menu paints every pixel itself.
+    // The full-screen menu paints every pixel itself. The Relief sheet copies the page's top band on
+    // entry, so until then the page must be in the frame (not a child screen that just closed).
+    return !reliefBandChecked && wantsReliefSheet();
 #else
     return readerDrawerNeedsExternalBackdrop(previewDirty, previewModel && previewModel->valid(),
                                              previewFontMetricsChanged);
@@ -143,6 +145,25 @@ class EpubReaderDrawerActivity final : public Activity {
   bool draggingSlider = false;
   bool sliderTapPending = false;
   bool buttonFocusActive = false;
+  // Relief: geometry captured while FreeInkUI builds the drawer, then repainted.
+  freeink::ui::Rect reliefTabRect{};
+  freeink::ui::Rect reliefListRect{};
+  int16_t reliefRowH = 0;
+  int16_t reliefGap = 0;
+  int reliefTop = 0;
+  int reliefRows = 0;
+  bool reliefRootBuilt = false;
+  void renderReliefOverlay();
+  // Relief sheet: the menu rises over the page, so the top lines of the page stay visible. The band
+  // is copied from the reader's frame on entry (about 8 KB while the menu is open) and pasted back.
+  static constexpr int kReliefPageBandH = 118;
+  static constexpr int kReliefSheetTop = 150;
+  std::unique_ptr<uint8_t[]> reliefPageBand;
+  size_t reliefPageBandBytes = 0;
+  int reliefSheetTop = 0;
+  bool reliefBandChecked = false;
+  bool wantsReliefSheet() const;
+  void drawReliefPageBand();
   ReaderButtonSliderState buttonSliderState{};
   bool automaticPageTurnActive = false;
   uint16_t autoPageTurnIntervalSeconds = READER_AUTO_PAGE_TURN_MIN_SECONDS;

@@ -1,4 +1,5 @@
 #pragma once
+#include <Arduino.h>
 #include <HalGPIO.h>
 #include <I18n.h>
 
@@ -78,6 +79,8 @@ class OptionPopup {
     primaryOptionIndex = -1;
     popupNote = Note();
     confirmationMode = true;
+    pressEchoEnabled = false;
+    echoPending = false;
     dividerAfterOption = -1;
     selectionArrow = false;
     activate(currentIndex);
@@ -123,8 +126,20 @@ class OptionPopup {
   // after their selection callback returns.
   void skipPostSelectionUpdate() { skipPostSelectionUpdate_ = true; }
 
+  // Press echo: Confirm first shows the focused option pressed deep for one refresh, then selects it.
+  // Opt-in per show() (the Relief theme's Quick actions use it); themes without the artwork ignore it.
+  void setPressEcho(bool enabled) { pressEchoEnabled = enabled; }
+
   bool handleInput(MappedInputManager& input, const std::function<void()>& requestUpdate) {
     if (!active) return false;
+    if (echoPending) {
+      if (millis() - echoStartMs < kPressEchoMs) return true;
+      echoPending = false;
+      // A Confirm (or Power-as-Confirm) still held after the echo must not reach the screen below.
+      save(input, requestUpdate,
+           input.isPressed(MappedInputManager::Button::Confirm) || input.isPressed(MappedInputManager::Button::Power));
+      return true;
+    }
 
     const int count = static_cast<int>(ownedStrings.size());
     if (count <= 0) {
@@ -261,6 +276,10 @@ class OptionPopup {
         activateSelection(input, requestUpdate, true);
       } else if (confirmationMode) {
         confirm(input, requestUpdate, true);
+      } else if (pressEchoEnabled && !isDisabled(selectedIndex)) {
+        echoPending = true;
+        echoStartMs = millis();
+        requestUpdate();
       } else {
         save(input, requestUpdate, true);
       }
@@ -288,9 +307,11 @@ class OptionPopup {
   void render(const GfxRenderer& renderer) const {
     if (!active) return;
     const auto& renderLayout = getLayout(renderer);
+    GUI.setPressEcho(echoPending);
     GUI.drawOptionPopup(renderer, title.c_str(), ownedStrings, selectedIndex, confirmationMode, tr(STR_CANCEL),
                         tr(STR_SAVE), footerFocused, primaryOptionIndex, popupNote.boldLabel, popupNote.body,
                         disabledOptions, renderLayout.firstOptionIndex);
+    GUI.setPressEcho(false);
     const int visibleIndex = dividerAfterOption - renderLayout.firstOptionIndex;
     if (visibleIndex >= 0 && visibleIndex + 1 < static_cast<int>(renderLayout.options.size())) {
       const auto& row = renderLayout.options[visibleIndex];
@@ -443,7 +464,11 @@ class OptionPopup {
     return x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
   }
 
+  static constexpr unsigned long kPressEchoMs = 500;
   bool active = false;
+  bool pressEchoEnabled = false;
+  bool echoPending = false;
+  unsigned long echoStartMs = 0;
   bool dismissOnOutsideTouchDown = false;
   bool confirmationMode = false;
   bool footerFocused = false;
@@ -493,6 +518,8 @@ class OptionPopup {
   }
 
   void prepareStandardShow() {
+    pressEchoEnabled = false;
+    echoPending = false;
     confirmationMode = false;
     footerFocused = false;
     onSaveCallback = nullptr;

@@ -1,3 +1,14 @@
+## [Unreleased]
+
+### Added
+
+- Add the Relief theme for button devices: raised soft keys and cards, a large Home clock with greeting, Now reading and Up next shelves, battery and book progress as liquid tubes, a round-key Quick Actions sheet, and matching Library, File Browser, Settings, reader menu, reading stats, alert, boot, and sleep screens.
+- Relief motion settings under Display: an optional per-minute Home clock tick, a liquid rise on Home open, a press echo on Quick Actions and Settings toggles, and optional grey shadows on Home. Each can be turned off.
+
+### Changed
+
+- X3/X4 firmware now uses the Relief theme only and hides the UI theme setting. Leaving the other themes out keeps the image about 8 KB smaller than v1.6.1 even with Relief added. Touch devices keep their existing themes and do not offer Relief yet.
+
 ## [v1.6.1] - 2026-10-03
 
 ### Added

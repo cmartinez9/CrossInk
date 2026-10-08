@@ -359,7 +359,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     MINIMAL = 5,
     DASHBOARD = 6,
     COVER_GRID = 7,
-    UI_THEME_COUNT = 8
+    RELIEF = 8,
+    UI_THEME_COUNT = 9
   };
   enum RECENT_BOOKS_VIEW { RECENT_BOOKS_LIST = 0, RECENT_BOOKS_GRID = 1, RECENT_BOOKS_VIEW_COUNT };
 
@@ -608,6 +609,12 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t uiScale = defaultUiScale();
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
+  // Relief theme motion. Clock tick is off by default (one refresh a minute); the stretch effects can be
+  // switched off if they misbehave on a panel.
+  uint8_t reliefClockTick = 0;
+  uint8_t reliefLiquidRise = 1;
+  uint8_t reliefPressEcho = 1;
+  uint8_t reliefGreyShadows = 0;
   // Quick-return from footnotes when a footnote shortcut is active.
   uint8_t pwrBtnFootnoteBack = 1;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)

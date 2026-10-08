@@ -825,6 +825,12 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
 
+void BaseTheme::drawReaderProgress(const GfxRenderer& renderer, const int x, const int y, const int width,
+                                   const int height, const float percent, const bool foregroundBlack) const {
+  const int filled = static_cast<int>(width * std::clamp(percent, 0.0f, 100.0f) / 100.0f);
+  renderer.fillRect(x, y, filled, height, foregroundBlack);
+}
+
 void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderStatusBarPosition position,
                                     const ReaderStatusBarContent& content,
                                     const ReaderStatusBarConfig* overrideConfig) const {
@@ -865,9 +871,8 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
                                    ? metrics.statusBarHorizontalMargin + 1 + ReaderStatusBarConfig::BOOKMARK_WIDTH + 4
                                    : 0;
     const int barWidth = std::max(0, screenWidth - marginLeft - marginRight - bookmarkOffset);
-    const int filled = static_cast<int>(barWidth * std::clamp(percent, 0.0f, 100.0f) / 100.0f);
     const int barY = top ? edgeY : edgeY + totalHeight - progressHeight;
-    renderer.fillRect(marginLeft + bookmarkOffset, barY, filled, progressHeight, foregroundBlack);
+    drawReaderProgress(renderer, marginLeft + bookmarkOffset, barY, barWidth, progressHeight, percent, foregroundBlack);
   }
   int bookmarkReserve = 0;
   if (!top && content.bookmarked) {

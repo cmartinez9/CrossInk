@@ -4,7 +4,9 @@
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <HalDisplay.h>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
@@ -35,10 +37,14 @@
 #include "RecentBookProgress.h"
 #include "RecentBooksStore.h"
 #include "SavedItemsHomeActivity.h"
+#include "components/HeaderDate.h"
 #include "components/UITheme.h"
+#include "components/UiAppHelpers.h"
 #include "components/themes/dashboard/DashboardTheme.h"
 #include "components/themes/lyra/LyraCarouselTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
+#include "components/themes/relief/ReliefKit.h"
+#include "components/themes/relief/ReliefTheme.h"
 #include "fontIds.h"
 
 namespace {
@@ -318,10 +324,12 @@ int findMenuActionIndex(const HomeMenuEntries& items, HomeMenuAction action) {
 }
 
 bool isMinimalTheme() {
+  if (CROSSINK_THEME_RELIEF_ONLY) return false;
   return static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::MINIMAL;
 }
 
 bool isDashboardTheme() {
+  if (CROSSINK_THEME_RELIEF_ONLY) return false;
   return static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::DASHBOARD;
 }
 
@@ -813,7 +821,10 @@ void HomeActivity::onEnter() {
   Activity::onEnter();
 
   hasOpdsServers = OPDS_STORE.hasServers();
-  if (UITheme::hasCoverGridHome()) {
+  reliefRisePending = isReliefHome() && SETTINGS.reliefLiquidRise;
+  reliefRiseSecondFrame = false;
+  reliefLastMinute = -1;
+  if (!CROSSINK_THEME_RELIEF_ONLY && UITheme::hasCoverGridHome()) {
     coverGridUi = makeUniqueNoThrow<CoverGridHomeUi>(renderer);
     if (!coverGridUi) LOG_ERR("HOME", "Cannot allocate cover grid UI; using standard Home");
   }
@@ -1366,6 +1377,7 @@ void HomeActivity::preRenderCarouselFrames() {
 }
 
 void HomeActivity::loop() {
+  if (isReliefHome() && !quickActionsPopup.isActive()) reliefLoop();
   if (quickActionsLongPowerHandled) {
     if (!mappedInput.isPressed(MappedInputManager::Button::Power)) {
       quickActionsLongPowerHandled = false;
@@ -1655,8 +1667,10 @@ void HomeActivity::loop() {
     return;
   }
 
+  // Relief: Relief reuses the carousel's two-row button model (books row, menu row).
   const bool isCarousel =
-      static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL;
+      static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL ||
+      static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::RELIEF;
   const bool carouselTouchOnly = isCarousel && mappedInput.hasTouchHardware();
   const int previousHighlightedBookIdx = getHighlightedBookIndex();
   const int visibleBookCount = getVisibleRecentBookCount();
@@ -2048,6 +2062,11 @@ void HomeActivity::render(RenderLock&&) {
 
   invalidatePolarityMismatchedCaches();
 
+  if (isReliefHome()) {
+    renderReliefHome();
+    return;
+  }
+
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -2387,4 +2406,270 @@ void HomeActivity::onReadingStatsOpen() {
 void HomeActivity::onSavedItemsOpen() {
   startActivityForResult(std::make_unique<SavedItemsHomeActivity>(renderer, mappedInput),
                          [this](const ActivityResult&) { requestUpdate(); });
+}
+
+// ---------------------------------------------------------------------------------------------
+// The "Relief" Home (soft UI). Focus model is Lyra Carousel's: the books row (Now reading + Up next)
+// and the menu row (Go to keys); side Up/Down switches rows, Left/Right steps within a row, Confirm
+// opens, Back resumes. The focused card or key sinks into a pressed well.
+// ---------------------------------------------------------------------------------------------
+namespace {
+constexpr int kReliefNowW = 120;
+constexpr int kReliefNowH = 180;
+constexpr int kReliefNextW = 64;
+constexpr int kReliefNextH = 96;
+constexpr uint32_t kReliefClockPollMs = 2000;
+constexpr uint8_t kReliefTicksPerCleanup = 30;
+
+std::string reliefThumb(const RecentBook& book, int w, int h, const GfxRenderer& renderer) {
+  if (book.coverBmpPath.empty() || !FsHelpers::hasEpubExtension(book.path)) return {};
+  const std::string path = UITheme::getCoverThumbPath(book.coverBmpPath, w, h);
+  if (path.empty()) return {};
+  if (!Storage.exists(path.c_str())) {
+    Epub epub(book.path, "/.crosspoint");
+    if (!epub.load(true, true, Epub::XLocationLoadMode::Skip)) return {};
+    epub.generateThumbBmp(w, h, &renderer, SETTINGS.getReaderFontId());
+  }
+  return path;
+}
+
+StrId reliefGreeting(const bool haveTime, const uint8_t hour) {
+  if (!haveTime) return StrId::STR_RELIEF_HELLO;
+  if (hour < 5) return StrId::STR_RELIEF_GOOD_NIGHT;
+  if (hour < 12) return StrId::STR_RELIEF_GOOD_MORNING;
+  if (hour < 17) return StrId::STR_RELIEF_GOOD_AFTERNOON;
+  if (hour < 21) return StrId::STR_RELIEF_GOOD_EVENING;
+  return StrId::STR_RELIEF_GOOD_NIGHT;
+}
+}  // namespace
+
+bool HomeActivity::isReliefHome() const {
+  return static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::RELIEF;
+}
+
+void HomeActivity::reliefLoop() {
+  // Any key cancels a pending second frame (liquid rise) so navigation never waits for decoration.
+  const bool anyHeld = mappedInput.isPressed(MappedInputManager::Button::Confirm) ||
+                       mappedInput.isPressed(MappedInputManager::Button::Back) ||
+                       mappedInput.isPressed(MappedInputManager::Button::Left) ||
+                       mappedInput.isPressed(MappedInputManager::Button::Right) ||
+                       mappedInput.isPressed(MappedInputManager::Button::Up) ||
+                       mappedInput.isPressed(MappedInputManager::Button::Down);
+  if (anyHeld) reliefRiseSecondFrame = false;
+  if (reliefRiseSecondFrame) {
+    reliefRiseSecondFrame = false;
+    requestUpdate();
+    return;
+  }
+  // Clock tick: one FAST refresh a minute while Home is visible (opt-in); a HALF every 30 ticks.
+  if (!SETTINGS.reliefClockTick || anyHeld) return;
+  const uint32_t now = millis();
+  if (now - reliefLastClockPoll < kReliefClockPollMs) return;
+  reliefLastClockPoll = now;
+  ReadingStatsDateTime t{};
+  if (!getCurrentLocalReadingStatsDateTime(t)) return;
+  if (reliefLastMinute >= 0 && t.minute != reliefLastMinute) {
+    if (++reliefTicks >= kReliefTicksPerCleanup) {
+      reliefTicks = 0;
+      initialRefreshMode = HalDisplay::HALF_REFRESH;
+    }
+    requestUpdate();
+  }
+  reliefLastMinute = t.minute;
+}
+
+void HomeActivity::renderReliefHome(const bool allowGreyShadows) {
+  using namespace relief;
+  const uint32_t t0 = millis();
+  const int W = renderer.getScreenWidth();
+  renderer.clearScreen();
+  char buf[64];
+
+  const int bookCount = getVisibleRecentBookCount();
+  const bool inBooks = selectorIndex < bookCount;
+  const auto items = buildHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings);
+  const int menuFocus = inBooks ? -1 : selectorIndex - bookCount;
+  // Liquid rise: the first frame after entering paints the pills empty; the second pours the level.
+  const bool riseFirstFrame = reliefRisePending;
+  const bool greyShadows = allowGreyShadows && SETTINGS.reliefGreyShadows && !SETTINGS.screenInverted;
+  if (greyShadows) beginShadowRecording();
+
+  // --- header chip: avatar + device name
+  {
+    const char* name = SETTINGS.deviceName[0] ? SETTINGS.deviceName : tr(STR_CROSSINK);
+    const std::string chip = renderer.truncatedText(UI_10_FONT_ID, name, W - 120, EpdFontFamily::BOLD);
+    const int nw = textWidth(renderer, UI_10_FONT_ID, chip.c_str(), EpdFontFamily::BOLD);
+    const int x0 = (W - (34 + 10 + nw)) / 2;
+    renderer.fillRoundedRect(x0, 16, 34, 34, 17, Color::Black);
+    if (const auto* ic = ReliefTheme::icon(UIIcon::Book, 24)) drawLucideIcon(renderer, *ic, x0 + 5, 21, false);
+    text(renderer, UI_10_FONT_ID, x0 + 44, 22, chip.c_str(), true, EpdFontFamily::BOLD);
+  }
+
+  // --- clock block: time in the clock face (12-hour keeps AM/PM in Inter 10 Bold beside it)
+  ReadingStatsDateTime now{};
+  const bool haveTime = getCurrentLocalReadingStatsDateTime(now);
+  if (!halClock.isAvailable() ||
+      !halClock.formatTime(buf, sizeof(buf), SETTINGS.clockUtcOffsetQ, SETTINGS.clockFormat == 1)) {
+    snprintf(buf, sizeof(buf), "--:--");
+  }
+  char* suffix = strchr(buf, ' ');
+  if (suffix) *suffix++ = '\0';
+  text(renderer, kClockFontId, 20, 62, buf);
+  if (suffix)
+    text(renderer, UI_10_FONT_ID, 24 + textWidth(renderer, kClockFontId, buf), 148, suffix, true, EpdFontFamily::BOLD);
+  if (formatHeaderDateText(buf, sizeof(buf))) text(renderer, UI_10_FONT_ID, 26, 184, buf, true, EpdFontFamily::BOLD);
+  {
+    // Grey (checker) display text only works large; fall back to black when the line is too wide.
+    const char* greeting = I18N.get(reliefGreeting(haveTime, now.hour));
+    const int maxW = 290 - 26 - 4;
+    if (titleFontFor(greeting) == kTitleFontId && textWidth(renderer, kTitleFontId, greeting) <= maxW) {
+      greyText(renderer, kTitleFontId, 26, 218, greeting);
+    } else {
+      const std::string g = renderer.truncatedText(UI_12_FONT_ID, greeting, maxW, EpdFontFamily::BOLD);
+      text(renderer, UI_12_FONT_ID, 26, 222, g.c_str(), true, EpdFontFamily::BOLD);
+    }
+  }
+  if (!recentBooks.empty()) {
+    char duration[24];
+    formatCompactReadingDuration(currentBookStats.totalReadingSeconds, duration, sizeof(duration));
+    snprintf(buf, sizeof(buf), tr(STR_RELIEF_IN_THIS_BOOK), duration);
+    const std::string line = renderer.truncatedText(UI_10_FONT_ID, buf, 260);
+    text(renderer, UI_10_FONT_ID, 26, 262, line.c_str());
+  } else {
+    text(renderer, UI_10_FONT_ID, 26, 262, tr(STR_RELIEF_NOTHING_OPEN));
+  }
+
+  // --- Now reading card (book 1)
+  {
+    const bool f = inBooks && selectorIndex == 0;
+    surface(renderer, 290, 66, 214, 238, 28, f);
+    textCentered(renderer, SMALL_FONT_ID, 290, 214, 80, tr(STR_RELIEF_NOW_READING), true);
+    const int d = f ? 1 : 0;
+    if (!recentBooks.empty()) {
+      const std::string thumb = reliefThumb(recentBooks[0], kReliefNowW, kReliefNowH, renderer);
+      drawCoverBmp(renderer, thumb.c_str(), 290 + (214 - kReliefNowW) / 2 + d, 106 + d, kReliefNowW, kReliefNowH, 10);
+    } else {
+      renderer.drawRoundedRect(337, 108, kReliefNowW, kReliefNowH - 4, 1, 10, true);
+      textCentered(renderer, UI_10_FONT_ID, 337, kReliefNowW, 176, tr(STR_RELIEF_NO_BOOK), true, EpdFontFamily::BOLD);
+    }
+  }
+
+  // --- Go to card: the home menu as round keys
+  {
+    raised(renderer, 24, 326, 228, 206, 28);
+    textCentered(renderer, SMALL_FONT_ID, 24, 228, 338, tr(STR_RELIEF_GO_TO), true);
+    const int n = items.size();
+    const int cols = n <= 4 ? 2 : (n <= 6 ? 3 : 4);
+    const int rows = (n + cols - 1) / cols;
+    const int d = cols == 2 ? 64 : (cols == 3 ? 56 : 46);
+    const float cell = 200.0f / cols;
+    const float rowH = (206.0f - 50.0f) / std::max(1, rows);
+    for (int i = 0; i < n; ++i) {
+      const int col = i % cols, row = i / cols;
+      const int cx = static_cast<int>(38 + cell * (col + 0.5f));
+      const int cy = static_cast<int>(326 + 42 + rowH * (row + 0.5f));
+      const bool ink = items[i].action != HomeMenuAction::BrowseFiles;
+      const char letter = items[i].label && items[i].label[0] ? items[i].label[0] : '?';
+      roundKey(renderer, cx, cy, d, ReliefTheme::icon(items[i].icon, 32), ink, i == menuFocus, letter);
+    }
+  }
+
+  // --- liquid pills: book progress and battery (empty on the first frame of a liquid rise)
+  {
+    const float prog = currentBookProgressPercent < 0 ? 0.0f : std::clamp(currentBookProgressPercent, 0.0f, 100.0f);
+    snprintf(buf, sizeof(buf), "%.0f%%", prog);
+    char small[24];
+    formatCompactReadingDuration(currentBookStats.totalReadingSeconds, small, sizeof(small));
+    const int phase = haveTime ? now.minute : 0;
+    liquidPill(renderer, 274, 326, 106, 206, riseFirstFrame ? 0.0f : prog / 100.0f, tr(STR_RELIEF_BOOK), buf,
+               recentBooks.empty() ? "" : small, false, phase);
+    const uint16_t pct = powerManager.getBatteryPercentage();
+    snprintf(buf, sizeof(buf), "%u%%", static_cast<unsigned>(pct));
+    liquidPill(renderer, 398, 326, 106, 206, riseFirstFrame ? 0.0f : pct / 100.0f, tr(STR_BATTERY), buf, "", false,
+               phase + 3);
+  }
+
+  // --- L card: Up next shelf + recent count; the cut-out holds the reading streak
+  {
+    const int x = 24, y = 554, w = 480, h = 176, cw = 168, ch = 92;
+    constexpr int r = 26;
+    const int offs[4][2] = {{7, 0}, {4, 1}, {1, 2}, {0, 2}};  // offset, color: 0 LightGray, 1 DarkGray, 2 Black
+    for (const auto& o : offs) {
+      const Color c = o[1] == 0 ? Color::LightGray : (o[1] == 1 ? Color::DarkGray : Color::Black);
+      renderer.fillRoundedRect(x + o[0], y + o[0], w, h - ch, r, c);
+      renderer.fillRoundedRect(x + o[0], y + o[0], w - cw, h, r, c);
+    }
+    renderer.fillRoundedRect(x + 1, y + 1, w - 2, h - ch - 2, r - 1, Color::White);
+    renderer.fillRoundedRect(x + 1, y + 1, w - cw - 2, h - 2, r - 1, Color::White);
+    text(renderer, SMALL_FONT_ID, 44, 566, tr(STR_RELIEF_UP_NEXT));
+    if (bookCount <= 1) {
+      text(renderer, UI_10_FONT_ID, 44, 610, tr(STR_RELIEF_COPY_BOOKS), true, EpdFontFamily::BOLD);
+    }
+    // Up next shows books 2-4; when focus walks further, the shelf window follows it.
+    const int first = upNextFirst(inBooks, selectorIndex);
+    for (int k = 0; k < 3; ++k) {
+      const int idx = first + k;
+      if (idx >= bookCount) break;
+      const int bx = 44 + k * 84;
+      const bool f = inBooks && selectorIndex == idx;
+      const std::string thumb = reliefThumb(recentBooks[idx], kReliefNextW, kReliefNextH, renderer);
+      if (f) pressed(renderer, bx - 8, 586, 80, 136, 16);
+      const int d = f ? 1 : 0;
+      drawCoverBmp(renderer, thumb.c_str(), bx + d, 594 + d, kReliefNextW, kReliefNextH, 6);
+      const float p =
+          bookStatsCached && idx < static_cast<int>(cachedBookProgress.size()) ? cachedBookProgress[idx] : -1.0f;
+      tube(renderer, bx + d, 700 + d, 64, 8, p < 0 ? 0.0f : p / 100.0f);
+    }
+    text(renderer, SMALL_FONT_ID, 344, 566, tr(STR_RELIEF_RECENT));
+    snprintf(buf, sizeof(buf), tr(STR_RELIEF_BOOKS_COUNT), static_cast<unsigned>(recentBooks.size()));
+    text(renderer, titleFontFor(buf), 344, 582, buf);
+  }
+  {
+    const uint16_t streak = haveTime ? globalStats.currentReadingStreak(&now.date) : 0;
+    raised(renderer, 356, 662, 148, 68, 22);
+    snprintf(buf, sizeof(buf), tr(STR_RELIEF_DAYS_COUNT), static_cast<unsigned>(streak));
+    text(renderer, UI_12_FONT_ID, 372, 670, buf, true, EpdFontFamily::BOLD);
+    text(renderer, SMALL_FONT_ID, 372, 702, tr(STR_RELIEF_STREAK));
+  }
+
+  // --- hints: Back resumes; Confirm names the focused thing
+  const char* confirm = tr(STR_OPEN);
+  if (inBooks) {
+    confirm = selectorIndex == 0 ? tr(STR_READ) : tr(STR_OPEN);
+  } else if (menuFocus >= 0 && menuFocus < items.size()) {
+    confirm = items[menuFocus].label;
+  }
+  sideNubs(renderer, true, true);
+  const auto labels = mappedInput.mapLabels(recentBooks.empty() ? "" : tr(STR_RELIEF_RESUME), confirm, "<", ">");
+  rockerHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  LOG_DBG("RELIEF", "home render (draw only): %lu ms", static_cast<unsigned long>(millis() - t0));
+  // Grey shadows (stretch, Display > Relief Motion): the bands were drawn solid black, and the reader's
+  // two-plane grayscale pass lightens them to the panel's real greys. Costs one extra grey refresh (about
+  // 0.5 s) per paint and a temporary 48 KB copy of the framebuffer (in chunks). The copy is taken before
+  // anything is shown: without it, the frame is redrawn with dithered bands instead.
+  if (greyShadows && !renderer.storeBwBuffer()) {
+    LOG_ERR("RELIEF", "Grey shadows skipped: no memory for the framebuffer copy");
+    endShadowRecording();
+    renderReliefHome(false);
+    return;
+  }
+  renderer.displayBuffer(initialRefreshMode);
+  initialRefreshMode = HalDisplay::FAST_REFRESH;
+  if (greyShadows) {
+    renderer.clearScreen(0x00);
+    renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
+    drawRecordedShadowPlane(renderer, true);
+    renderer.copyGrayscaleMsbBuffers();
+    renderer.clearScreen(0x00);
+    renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+    drawRecordedShadowPlane(renderer, false);
+    renderer.copyGrayscaleLsbBuffers();
+    renderer.displayGrayBuffer();
+    renderer.setRenderMode(GfxRenderer::BW);
+    renderer.restoreBwBuffer();
+  }
+  if (riseFirstFrame) {
+    reliefRisePending = false;
+    reliefRiseSecondFrame = true;
+  }
 }

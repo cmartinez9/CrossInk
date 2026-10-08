@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdio>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/CompactHeader.h"
 #include "components/TouchActionButtons.h"
@@ -16,6 +17,7 @@
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/icons/listIcons.h"
+#include "components/themes/relief/ReliefKit.h"
 #include "fontIds.h"
 
 namespace {
@@ -222,6 +224,26 @@ float pagesPerMinute(const uint32_t totalPagesTurned, const uint32_t totalReadin
   return static_cast<float>(totalPagesTurned) * 60.0f / static_cast<float>(totalReadingSeconds);
 }
 
+bool reliefStats() { return SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF; }
+
+// Card frame: Relief draws a raised card inside the slot (its shadow stays within the slot), other
+// themes keep the hairline rectangle.
+void drawStatsCardFrame(const GfxRenderer& renderer, const int x, const int y, const int w, const int h) {
+  if (reliefStats()) {
+    relief::raised(renderer, x, y, w - 7, h - 7, 18);
+  } else {
+    renderer.drawRect(x, y, w, h);
+  }
+}
+
+void drawStatsDivider(const GfxRenderer& renderer, const int x, const int y, const int w) {
+  if (reliefStats()) {
+    for (int dx = x + 16; dx < x + w - 23; dx += 2) renderer.drawPixel(dx, y, true);
+  } else {
+    renderer.drawLine(x, y, x + w, y);
+  }
+}
+
 void drawCenteredLabel(const GfxRenderer& renderer, const int fontId, const int x, const int w, const int y,
                        const char* text, const bool bold = false) {
   const int textWidth = renderer.getTextWidth(fontId, text, bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
@@ -241,8 +263,8 @@ void drawStatCell(const GfxRenderer& renderer, const int x, const int w, const i
 
 void drawSectionCard(const GfxRenderer& renderer, const int x, const int y, const int w, const int h, const char* title,
                      const StatsLayout& layout) {
-  renderer.drawRect(x, y, w, h);
-  renderer.drawLine(x, y + layout.sectionTitleH, x + w, y + layout.sectionTitleH);
+  drawStatsCardFrame(renderer, x, y, w, h);
+  drawStatsDivider(renderer, x, y + layout.sectionTitleH, w);
   drawCenteredLabel(renderer, layout.sectionTitleFontId, x, w,
                     y + (layout.sectionTitleH - renderer.getLineHeight(layout.sectionTitleFontId)) / 2, title, true);
 }
@@ -280,7 +302,12 @@ void drawHorizontalBars(GfxRenderer& renderer, const int x, const int y, const i
     const int labelY = rowTop + (rowContentH - labelLineH) / 2;
     const int barY = rowTop + (rowContentH - layout.barH) / 2;
     renderer.drawText(layout.chartLabelFontId, x + labelLeftPadding, labelY, I18N.get(labels[i]));
-    if (maxValue > 0 && values[i] > 0) {
+    if (reliefStats()) {
+      // Relief: every row is a groove; the ink fill is the value (empty rows still show their track).
+      const int tubeH = std::max(8, layout.barH);
+      const float level = maxValue > 0 ? static_cast<float>(values[i]) / static_cast<float>(maxValue) : 0.0f;
+      relief::tube(renderer, barX, rowTop + (rowContentH - tubeH) / 2, barW, tubeH, level);
+    } else if (maxValue > 0 && values[i] > 0) {
       const int fillW = std::max(2, static_cast<int>((static_cast<uint64_t>(barW) * values[i]) / maxValue));
       renderer.fillRect(barX, barY, fillW, layout.barH, true);
     }
@@ -291,8 +318,8 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
                           const std::string& bookTitle, const BookReadingStats& stats, const float progressPercent,
                           const bool hasEstimatedTimeLeft, const uint32_t estimatedTimeLeftSeconds,
                           const StatsLayout& layout) {
-  renderer.drawRect(x, y, w, h);
-  renderer.drawLine(x, y + layout.topCardTitleH, x + w, y + layout.topCardTitleH);
+  drawStatsCardFrame(renderer, x, y, w, h);
+  drawStatsDivider(renderer, x, y + layout.topCardTitleH, w);
   const std::string visibleTitle =
       renderer.truncatedText(UI_10_FONT_ID, bookTitle.c_str(), w - 20, EpdFontFamily::BOLD);
   drawCenteredLabel(renderer, UI_10_FONT_ID, x, w,
@@ -386,8 +413,8 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
 
 void drawGlobalStatsCard(GfxRenderer& renderer, const int x, const int y, const int w, const int h, const char* title,
                          const GlobalReadingStats& stats, const StatsLayout& layout) {
-  renderer.drawRect(x, y, w, h);
-  renderer.drawLine(x, y + layout.topCardTitleH, x + w, y + layout.topCardTitleH);
+  drawStatsCardFrame(renderer, x, y, w, h);
+  drawStatsDivider(renderer, x, y + layout.topCardTitleH, w);
   const bool showRtcStats = shouldShowRtcBasedStats();
   drawCenteredLabel(renderer, UI_10_FONT_ID, x, w,
                     y + (layout.topCardTitleH - renderer.getLineHeight(UI_10_FONT_ID)) / 2, title, true);
@@ -442,6 +469,11 @@ void drawDateField(const GfxRenderer& renderer, const int x, const int y, const 
   if (touchTarget >= 0) {
     TouchRegistry::getInstance().add(Rect(x, y, w, h), touchTarget, TouchRegistry::Item);
   }
+  if (reliefStats()) {
+    relief::surface(renderer, x, y, w, h, h / 2, selected);
+    drawCenteredLabel(renderer, UI_12_FONT_ID, x + (selected ? 1 : 0), w, y + 5 + (selected ? 1 : 0), text);
+    return;
+  }
   renderer.fillRectDither(x, y, w, h, selected ? Color::LightGray : Color::White);
   renderer.drawRect(x, y, w, h, true);
   if (selected) {
@@ -453,7 +485,11 @@ void drawDateField(const GfxRenderer& renderer, const int x, const int y, const 
 void drawDateAdjustButton(const GfxRenderer& renderer, const int x, const int y, const int size,
                           const freeink::Icon& icon, const int touchTarget) {
   TouchRegistry::getInstance().add(Rect(x, y, size, size), touchTarget, TouchRegistry::Item);
-  renderer.drawRect(x, y, size, size, true);
+  if (reliefStats()) {
+    relief::raised(renderer, x, y, size, size, size / 2);
+  } else {
+    renderer.drawRect(x, y, size, size, true);
+  }
   const freeink::ui::BitmapRef bitmap{icon.bits, icon.w, icon.h, freeink::ui::BitmapFormat::Mask1, true};
   freeink::ui::forEachBitmapPixel(
       freeink::ui::Rect{static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(size),
@@ -667,7 +703,7 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
   const std::string visibleTitle =
       renderer.truncatedText(UI_12_FONT_ID, bookTitle.c_str(), pageWidth - 80, EpdFontFamily::BOLD);
   renderer.drawCenteredText(UI_12_FONT_ID, 96, visibleTitle.c_str(), true, EpdFontFamily::BOLD);
-  renderer.drawRect(cardX, cardY, cardW, cardH);
+  drawStatsCardFrame(renderer, cardX, cardY, cardW, cardH);
 
   const int sectionGap = 104;
   const int row1Y = cardY + 66;

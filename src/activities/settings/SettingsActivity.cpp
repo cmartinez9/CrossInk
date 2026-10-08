@@ -50,6 +50,7 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "components/icons/frontlightHeaderIcons.h"
+#include "components/themes/relief/ReliefKit.h"
 #include "fontIds.h"
 #include "util/DictionaryRegistry.h"
 #include "util/FrontlightSchedule.h"
@@ -858,6 +859,14 @@ void SettingsActivity::applyUiSettingChange(uint8_t CrossPointSettings::* valueP
 
 void SettingsActivity::loop() {
   if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
+  if (reliefEchoPending) {
+    // Press echo: the toggle showed its deep state for one refresh; now apply the change.
+    if (millis() - reliefEchoStartMs < kReliefEchoMs) return;
+    reliefEchoPending = false;
+    toggleCurrentSetting();
+    requestUpdate();
+    return;
+  }
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   if (TouchHeaderBackButton::wasTapped(mappedInput, settingsHeaderRect(metrics, renderer.getScreenWidth()))) {
@@ -880,6 +889,12 @@ void SettingsActivity::loop() {
       hasChangedCategory = true;
       requestUpdate();
     } else {
+      if (reliefEchoApplies()) {
+        reliefEchoPending = true;
+        reliefEchoStartMs = millis();
+        requestUpdate();
+        return;
+      }
       toggleCurrentSetting();
       requestUpdate();
       return;
@@ -1026,6 +1041,16 @@ bool SettingsActivity::handleHomeGesture() {
     closeRootSettings();
   }
   return true;
+}
+
+bool SettingsActivity::reliefEchoApplies() const {
+  // Only plain toggles echo: their result appears on this same screen. Navigation never waits.
+  if (SETTINGS.uiTheme != CrossPointSettings::UI_THEME::RELIEF || !SETTINGS.reliefPressEcho) return false;
+  if (mappedInput.hasTouchHardware() || isFileBrowserView()) return false;
+  const int idx = selectedSettingIndex - 1;
+  if (idx < 0 || idx >= settingsCount) return false;
+  const auto& setting = (*currentSettings)[idx];
+  return setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr;
 }
 
 void SettingsActivity::toggleCurrentSetting() {
@@ -1387,6 +1412,7 @@ void SettingsActivity::settingsScreen(UiApp::ScreenType& screen, void* user) {
 }
 
 void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
+  reliefBuilt = false;
   const auto& metrics = UITheme::getInstance().getMetrics();
 #if CROSSINK_APP_CAP_TOUCH
   const bool landscapeTouch = useLandscapeTouchLayout(renderer);
@@ -1525,6 +1551,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
 #endif
   {
     const fui::Rect tabRect = screen.takeTop(tabBand);
+    reliefTabRect = tabRect;
     if (!roundedRaffTabs && !borderedTabs && tabsFocused) {
       screen.target().fill(tabRect, fui::Paint::dither(fui::Color::LightGray));
     }
@@ -1594,6 +1621,10 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   }
   configureUiListSectionHeaders(props, screen.theme());
   const auto rows = configureUiList(props, screen.theme(), screen.body());
+  reliefListRect = screen.body();
+  reliefRowH = props.rowHeight;
+  reliefRowGap = props.rowGap;
+  reliefBuilt = true;
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, settingsCount);  // clamp to range
   props.topIndex = static_cast<uint16_t>(topIndex);
@@ -1618,6 +1649,10 @@ void SettingsActivity::render(RenderLock&&) {
   uiReady = false;
   app.render();
   uiReady = true;
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF && !mappedInput.hasTouchHardware() && reliefBuilt &&
+      !isFileBrowserView()) {
+    renderReliefSettings(title);
+  }
 
   // Keep build information discoverable without crowding the common header.
   if (!isFileBrowserView() && selectedCategoryIndex == 3) {
@@ -1656,4 +1691,97 @@ void SettingsActivity::render(RenderLock&&) {
 
   // Always use standard refresh for settings screen
   renderer.displayBuffer();
+}
+
+// Relief settings. Category tabs become a segmented well (the current
+// category pops out; when the tab band has focus it turns ink), and the rows sit in one raised card
+// with dotted dividers. The focused row sinks; toggles are a groove with a raised knob (off) or an
+// ink track (on).
+void SettingsActivity::renderReliefSettings(const char* title) {
+  using namespace relief;
+  const int W = renderer.getScreenWidth();
+  const int headerBottom = std::max<int>(0, reliefTabRect.y);
+  GUI.drawHeader(renderer, Rect{0, 0, W, headerBottom}, title);
+  {
+    const auto& t = reliefTabRect;
+    renderer.fillRect(0, t.y, W, t.height + 6, false);
+    const int x = 20, y = t.y + 3, w = W - 40, h = std::max(34, static_cast<int>(t.height) - 6);
+    pressed(renderer, x, y, w, h, h / 2);
+    const float sw = (w - 8) / static_cast<float>(categoryCount);
+    const int lh = renderer.getLineHeight(SMALL_FONT_ID);
+    for (int i = 0; i < categoryCount; ++i) {
+      const int sx = static_cast<int>(x + 4 + i * sw);
+      const bool sel = i == selectedCategoryIndex;
+      bool white = false;
+      if (sel && selectedSettingIndex == 0) {
+        renderer.fillRoundedRect(sx + 3, y + 5, static_cast<int>(sw) - 6, h - 10, (h - 10) / 2, Color::Black);
+        white = true;
+      } else if (sel) {
+        raised(renderer, sx + 3, y + 5, static_cast<int>(sw) - 6, h - 10, (h - 10) / 2);
+      }
+      const std::string label =
+          renderer.truncatedText(SMALL_FONT_ID, I18N.get(categoryNames[i]), static_cast<int>(sw) - 12);
+      textCentered(renderer, SMALL_FONT_ID, sx, static_cast<int>(sw), y + (h - lh) / 2, label.c_str(), !white,
+                   sel ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    }
+  }
+  const auto& L = reliefListRect;
+  renderer.fillRect(0, L.y, W, L.height, false);
+  const auto& settings = *currentSettings;
+  const int count = std::min(visibleRows, settingsCount - topIndex);
+  if (count <= 0) return;
+  const int rowH = std::max<int>(reliefRowH, 44);
+  const int step = rowH + std::max<int>(reliefRowGap, 4);
+  const int cardX = 20, cardW = W - 40 - 8;
+  const int maxRows = std::max(1, (L.height - 20) / step);
+  const int shown = std::min(count, maxRows);
+  raised(renderer, cardX, L.y + 2, cardW, shown * step + 14, 24);
+  const int lh = renderer.getLineHeight(UI_10_FONT_ID);
+  for (int i = 0; i < shown; ++i) {
+    const int idx = topIndex + i;
+    const auto& setting = settings[idx];
+    const int ry = L.y + 9 + i * step;
+    const bool f = selectedSettingIndex == idx + 1;
+    const int d = f ? 1 : 0;
+    if (setting.type == SettingType::SECTION_HEADER) {
+      text(renderer, SMALL_FONT_ID, cardX + 22, ry + rowH - renderer.getLineHeight(SMALL_FONT_ID) - 4,
+           I18N.get(setting.nameId), true, EpdFontFamily::BOLD);
+      continue;
+    }
+    if (f) {
+      pressed(renderer, cardX + 8, ry, cardW - 16, rowH, 20);
+    } else if (i < shown - 1 && selectedSettingIndex != idx + 2) {
+      for (int dx = cardX + 24; dx < cardX + cardW - 24; dx += 4) renderer.drawPixel(dx, ry + rowH + step - rowH - 2);
+    }
+    const int right = cardX + cardW - 22;
+    std::string value;
+    const bool isToggle = setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr;
+    if (!isToggle) value = settingValueText(setting);
+    const int valueW = value.empty() ? 0 : std::min(170, textWidth(renderer, UI_10_FONT_ID, value.c_str()) + 22);
+    const std::string label =
+        renderer.truncatedText(UI_10_FONT_ID, I18N.get(setting.nameId), cardW - 60 - (isToggle ? 60 : valueW),
+                               f ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    text(renderer, UI_10_FONT_ID, cardX + 24 + d, ry + (rowH - lh) / 2 + d, label.c_str(), true,
+         f ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    if (isToggle) {
+      const bool on = SETTINGS.*(setting.valuePtr) != 0;
+      const int tw = 52, th = 28, tx = right - tw + d, ty = ry + (rowH - th) / 2 + d;
+      if (f && reliefEchoPending) {
+        // Press echo frame: the switch sinks deeper (SHADE) before it flips.
+        fillShade(renderer, tx, ty, tw, th, th / 2);
+      } else {
+        relief::toggle(renderer, tx, ty, on);
+      }
+    } else if (!value.empty()) {
+      // Submenu values already end in ">"; the drawn chevron replaces it.
+      while (!value.empty() && (value.back() == '>' || value.back() == ' ')) value.pop_back();
+      const std::string v = renderer.truncatedText(UI_10_FONT_ID, value.c_str(), 150, EpdFontFamily::BOLD);
+      const int cy = ry + rowH / 2 + d;
+      renderer.drawLine(right - 4 + d, cy - 5, right + 1 + d, cy, 2, true);
+      renderer.drawLine(right + 1 + d, cy, right - 4 + d, cy + 5, 2, true);
+      textRight(renderer, UI_10_FONT_ID, right - 12 + d, ry + (rowH - lh) / 2 + d, v.c_str(), true,
+                EpdFontFamily::BOLD);
+    }
+  }
+  sideNubs(renderer, true, true);
 }

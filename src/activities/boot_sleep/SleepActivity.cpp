@@ -39,8 +39,10 @@
 #include "SleepCoverAssets.h"
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
+#include "components/UiAppHelpers.h"
 #include "components/themes/dashboard/DashboardTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
+#include "components/themes/relief/ReliefKit.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
 #include "images/MoonIcon.h"
@@ -557,6 +559,24 @@ void SleepActivity::onEnter() {
     GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
   }
 
+  // Relief: the Dark/Light/Cover and Minimal modes become the Relief cover card; the stats modes become
+  // the Relief reading-stats card.
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) {
+    switch (sleepScreen) {
+      case CrossPointSettings::SLEEP_SCREEN_MODE::DARK:
+      case CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT:
+      case CrossPointSettings::SLEEP_SCREEN_MODE::COVER:
+      case CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_SLEEP:
+        return renderReliefSleepScreen(false);
+      case CrossPointSettings::SLEEP_SCREEN_MODE::READING_STATS_SLEEP:
+      case CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_STATS_SLEEP:
+      case CrossPointSettings::SLEEP_SCREEN_MODE::DASHBOARD_SLEEP:
+        return renderReliefSleepScreen(true);
+      default:
+        break;
+    }
+  }
+
   switch (sleepScreen) {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
       return renderBlankSleepScreen();
@@ -885,6 +905,9 @@ void SleepActivity::renderReadingStatsSleepScreen() const {
 }
 
 void SleepActivity::renderMinimalSleepScreen() const {
+#if CROSSINK_THEME_RELIEF_ONLY
+  return renderReliefSleepScreen(false);
+#else
   const std::string& path = currentBookPath.empty() ? APP_STATE.openEpubPath : currentBookPath;
   if (path.empty()) {
     return renderDefaultSleepScreen();
@@ -903,9 +926,13 @@ void SleepActivity::renderMinimalSleepScreen() const {
                         BookStatsTracking::isEnabled(bookStatsCachePathFor(path)) ? &bookStats : nullptr,
                         progressPercent, sleepCoverFilterInvertsGeneratedScreen());
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+#endif
 }
 
 void SleepActivity::renderMinimalStatsSleepScreen() const {
+#if CROSSINK_THEME_RELIEF_ONLY
+  return renderReliefSleepScreen(true);
+#else
   const std::string& path = currentBookPath.empty() ? APP_STATE.openEpubPath : currentBookPath;
   if (path.empty()) {
     return renderDefaultSleepScreen();
@@ -924,9 +951,13 @@ void SleepActivity::renderMinimalStatsSleepScreen() const {
   theme.drawStatsSleepScreen(renderer, book, &bookStats, &globalStats, progressPercent,
                              sleepCoverFilterInvertsGeneratedScreen());
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+#endif
 }
 
 void SleepActivity::renderDashboardSleepScreen() const {
+#if CROSSINK_THEME_RELIEF_ONLY
+  return renderReliefSleepScreen(true);
+#else
   const std::string& path = currentBookPath.empty() ? APP_STATE.openEpubPath : currentBookPath;
   if (path.empty()) {
     return renderDefaultSleepScreen();
@@ -950,6 +981,7 @@ void SleepActivity::renderDashboardSleepScreen() const {
   theme.drawSleepScreen(renderer, book, &bookStats, &globalStats, progressPercent, chapterTitle.c_str(),
                         sleepCoverFilterInvertsGeneratedScreen());
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+#endif
 }
 
 void SleepActivity::renderLastScreenSleepScreen() const {
@@ -1294,4 +1326,81 @@ void SleepActivity::renderOverlaySleepScreen() const {
   renderer.displayGrayBuffer(TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
   renderer.setRenderMode(GfxRenderer::BW);
   renderer.restoreBwBuffer();
+}
+
+// The Relief sleep screen. The current book's cover on a lifted card,
+// title, author, a liquid progress groove and the inspiration's lock as a round key.
+void SleepActivity::renderReliefSleepScreen(const bool withStats) const {
+  using namespace relief;
+  constexpr int kCoverW = 300, kCoverH = 446;
+  const int W = renderer.getScreenWidth();
+  renderer.clearScreen();
+  const std::string& path = currentBookPath.empty() ? APP_STATE.openEpubPath : currentBookPath;
+  RecentBook book;
+  book.path = path;
+  std::string thumb;
+  const int coverW = withStats ? 116 : kCoverW;
+  const int coverH = withStats ? 172 : kCoverH;
+  if (!path.empty() && FsHelpers::hasEpubExtension(path)) {
+    Epub epub(path, "/.crosspoint");
+    if (epub.load(true, true, Epub::XLocationLoadMode::Skip)) {
+      book.title = epub.getTitle();
+      book.author = epub.getAuthor();
+      thumb = epub.getThumbBmpPath(coverW, coverH);
+      if (!thumb.empty() && !Storage.exists(thumb.c_str())) {
+        epub.generateThumbBmp(coverW, coverH, &renderer, SETTINGS.getReaderFontId());
+      }
+    }
+  }
+  const float p = book.title.empty() ? -1.0f : RecentBookProgress::loadCachedEpubPercent(book);
+  char buf[32];
+  if (withStats) {
+    // Reading stats layout: the book on a raised card, then total time and the streak.
+    textCentered(renderer, kTitleFontId, 0, W, 62, tr(STR_SLEEPING));
+    raised(renderer, 40, 140, W - 80, 220, 28);
+    drawCoverBmp(renderer, thumb.c_str(), 64, 164, coverW, coverH, 10);
+    const int tx = 200, tw = W - 80 - (tx - 40) - 24;
+    const std::string t = renderer.truncatedText(UI_12_FONT_ID, book.title.c_str(), tw, EpdFontFamily::BOLD);
+    text(renderer, UI_12_FONT_ID, tx, 168, t.c_str(), true, EpdFontFamily::BOLD);
+    const std::string a = renderer.truncatedText(UI_10_FONT_ID, book.author.c_str(), tw);
+    text(renderer, UI_10_FONT_ID, tx, 202, a.c_str());
+    tube(renderer, tx, 250, tw, 12, p < 0 ? 0.0f : p / 100.0f);
+    snprintf(buf, sizeof(buf), "%.0f%%", p < 0 ? 0.0f : p);
+    text(renderer, SMALL_FONT_ID, tx, 272, buf);
+    const GlobalReadingStats globalStats = GlobalReadingStats::load();
+    const int tileW = (W - 104) / 2;
+    raised(renderer, 40, 390, tileW, 150, 26);
+    snprintf(buf, sizeof(buf), "%lu:%02lu", static_cast<unsigned long>(globalStats.totalReadingSeconds / 3600),
+             static_cast<unsigned long>((globalStats.totalReadingSeconds / 60) % 60));
+    text(renderer, kTitleFontId, 60, 410, buf);
+    text(renderer, SMALL_FONT_ID, 62, 470, tr(STR_RELIEF_HOURS_READ));
+    raised(renderer, 64 + tileW, 390, tileW, 150, 26);
+    ReadingStatsDateTime now{};
+    const uint16_t streak = getCurrentLocalReadingStatsDateTime(now) ? globalStats.currentReadingStreak(&now.date) : 0;
+    snprintf(buf, sizeof(buf), tr(STR_RELIEF_DAYS_COUNT), static_cast<unsigned>(streak));
+    text(renderer, kTitleFontId, 84 + tileW, 410, buf);
+    text(renderer, SMALL_FONT_ID, 86 + tileW, 470, tr(STR_RELIEF_STREAK));
+  } else {
+    lifted(renderer, (W - kCoverW) / 2 - 20, 60, kCoverW + 40, kCoverH + 40, 34);
+    drawCoverBmp(renderer, thumb.c_str(), (W - kCoverW) / 2, 80, kCoverW, kCoverH, 18);
+    if (!book.title.empty()) {
+      const int font = titleFontFor(book.title.c_str());
+      const auto style = font == kTitleFontId ? EpdFontFamily::REGULAR : EpdFontFamily::BOLD;
+      const std::string t = renderer.truncatedText(font, book.title.c_str(), W - 48, style);
+      textCentered(renderer, font, 0, W, 592, t.c_str(), true, style);
+      const std::string a = renderer.truncatedText(UI_10_FONT_ID, book.author.c_str(), W - 48);
+      textCentered(renderer, UI_10_FONT_ID, 0, W, 634, a.c_str());
+      tube(renderer, 124, 672, 280, 12, p < 0 ? 0.0f : p / 100.0f);
+      snprintf(buf, sizeof(buf), "%.0f%%", p < 0 ? 0.0f : p);
+      textCentered(renderer, SMALL_FONT_ID, 0, W, 692, buf, true, EpdFontFamily::BOLD);
+    } else {
+      textCentered(renderer, kTitleFontId, 0, W, 600, tr(STR_SLEEPING));
+    }
+  }
+  // Lock key (the inspiration's lock glyph), drawn: shackle then body.
+  const int cx = W / 2, cy = 748, d = 52;
+  raised(renderer, cx - d / 2, cy - d / 2, d, d, d / 2);
+  renderer.drawRoundedRect(cx - 7, cy - 13, 14, 16, 3, 7, true);
+  renderer.fillRoundedRect(cx - 10, cy - 3, 20, 15, 3, Color::Black);
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }

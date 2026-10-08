@@ -59,6 +59,8 @@ void showConfiguredPopup(OptionPopup& popup, const std::function<void()>& reques
                  }
                }
              });
+  // Relief press echo (stretch, switchable in Display > Relief Motion).
+  popup.setPressEcho(SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF && SETTINGS.reliefPressEcho);
   requestUpdate();
 }
 }  // namespace QuickActions

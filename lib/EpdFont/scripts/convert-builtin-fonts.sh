@@ -228,6 +228,16 @@ python fontconvert.py inter_8_regular 8 \
   ../builtinFonts/source/NotoSansArabic/NotoSansArabic-Regular.ttf \
   --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" > ../builtinFonts/inter_8_regular.h
 
+# Relief theme display faces - Inter Bold: ASCII screen titles (plus the truncation ellipsis) and a digits-only clock
+
+python fontconvert.py relief_title_16 16 ../builtinFonts/source/Inter/Inter-Bold.ttf \
+  --no-default-intervals --additional-intervals 32,126 --additional-intervals 0x2026,0x2026 \
+  > ../builtinFonts/relief_title_16.h
+
+python fontconvert.py relief_clock_46 46 ../builtinFonts/source/Inter/Inter-Bold.ttf \
+  --no-default-intervals --additional-intervals 32,32 --additional-intervals 37,37 \
+  --additional-intervals 48,58 > ../builtinFonts/relief_clock_46.h
+
 echo ""
 echo "Running compression verification..."
 python verify_compression.py ../builtinFonts/

@@ -106,5 +106,46 @@ inline freeink::ui::ThemeTokens uiThemeTokens(const freeink::ui::GfxRendererTarg
   tokens.headerUnderline = static_cast<uint8_t>(metrics.headerUnderlineSize);
   tokens.headerTitleAlign = static_cast<fui::TextAlign>(metrics.headerTitleAlign);
   tokens.bodyText.bold = metrics.listTitleBold;
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) {
+    // Relief: FreeInkUI rows become hairline cards and focus a heavier "pressed" edge. The full stamped
+    // shadow stack is drawn by the screens that have a Relief render path.
+    fui::BoxStyle row{};
+    row.background = fui::Paint::solid(fui::Color::White);
+    row.border = fui::Paint::solid(fui::Color::Black);
+    row.borderWidth = 1;
+    row.radius = static_cast<uint8_t>(metrics.listRowRadius);
+    tokens.listRow.normal = row;
+    fui::BoxStyle sel = row;
+    sel.borderWidth = 3;
+    tokens.listRow.selected = sel;
+    tokens.listRow.focused = sel;
+    tokens.listRow.active = sel;
+    tokens.listRow.disabled = row;
+    tokens.listRow.explicitlySet = true;
+    // Keys, buttons and fields: hairline shapes; the focused one gets the heavier pressed edge. Dense key
+    // grids stay flat on purpose (shadow stacks on every key would add edges and ghosting).
+    fui::BoxStyle keyStyle = row;
+    keyStyle.radius = 12;
+    fui::BoxStyle keyFocus = keyStyle;
+    keyFocus.borderWidth = 3;
+    tokens.key.normal = keyStyle;
+    tokens.key.selected = keyFocus;
+    tokens.key.focused = keyFocus;
+    tokens.key.active = keyFocus;
+    tokens.key.disabled = keyStyle;
+    tokens.key.explicitlySet = true;
+    fui::BoxStyle buttonStyle = row;
+    buttonStyle.radius = 22;
+    fui::BoxStyle buttonFocus = buttonStyle;
+    buttonFocus.borderWidth = 3;
+    tokens.button.normal = buttonStyle;
+    tokens.button.selected = buttonFocus;
+    tokens.button.focused = buttonFocus;
+    tokens.button.active = buttonFocus;
+    tokens.button.disabled = buttonStyle;
+    tokens.button.explicitlySet = true;
+    tokens.controlRadius = 18;
+    tokens.sheetRadius = 26;
+  }
   return tokens;
 }

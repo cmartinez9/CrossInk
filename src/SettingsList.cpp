@@ -1,5 +1,7 @@
 #include "SettingsList.h"
 
+#include "AppCapabilities.h"
+
 const std::vector<SettingInfo>& getBaseSettingsList() {
   static const std::vector<SettingInfo> baseList = [] {
     std::vector<SettingInfo> v;
@@ -34,16 +36,35 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                                 CrossPointSettings::REFRESH_30, CrossPointSettings::REFRESH_NEVER}));
     add(SettingInfo::Toggle(StrId::STR_NIGHT_MODE, &CrossPointSettings::screenInverted, "screenInverted",
                             StrId::STR_CAT_DISPLAY));
-    add(SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme,
-                          {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_MINIMAL, StrId::STR_THEME_DASHBOARD,
-                           StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED, StrId::STR_THEME_LYRA_CAROUSEL,
-                           StrId::STR_THEME_ROUNDEDRAFF, StrId::STR_THEME_COVER_GRID},
-                          "uiTheme", StrId::STR_CAT_DISPLAY)
-            .withEnumRawValues({CrossPointSettings::UI_THEME::CLASSIC, CrossPointSettings::UI_THEME::MINIMAL,
-                                CrossPointSettings::UI_THEME::DASHBOARD, CrossPointSettings::UI_THEME::LYRA,
-                                CrossPointSettings::UI_THEME::LYRA_3_COVERS,
-                                CrossPointSettings::UI_THEME::LYRA_CAROUSEL, CrossPointSettings::UI_THEME::ROUNDEDRAFF,
-                                CrossPointSettings::UI_THEME::COVER_GRID}));
+    if (!CROSSINK_THEME_RELIEF_ONLY) {
+      std::vector<StrId> themeNames = {StrId::STR_THEME_CLASSIC,       StrId::STR_THEME_MINIMAL,
+                                       StrId::STR_THEME_DASHBOARD,     StrId::STR_THEME_LYRA,
+                                       StrId::STR_THEME_LYRA_EXTENDED, StrId::STR_THEME_LYRA_CAROUSEL,
+                                       StrId::STR_THEME_ROUNDEDRAFF,   StrId::STR_THEME_COVER_GRID};
+      std::vector<uint8_t> themeValues = {
+          CrossPointSettings::UI_THEME::CLASSIC,       CrossPointSettings::UI_THEME::MINIMAL,
+          CrossPointSettings::UI_THEME::DASHBOARD,     CrossPointSettings::UI_THEME::LYRA,
+          CrossPointSettings::UI_THEME::LYRA_3_COVERS, CrossPointSettings::UI_THEME::LYRA_CAROUSEL,
+          CrossPointSettings::UI_THEME::ROUNDEDRAFF,   CrossPointSettings::UI_THEME::COVER_GRID};
+      if (!CROSSINK_APP_CAP_TOUCH) {
+        // Relief is drawn for button devices (its Home has no touch targets).
+        themeNames.push_back(StrId::STR_THEME_RELIEF);
+        themeValues.push_back(CrossPointSettings::UI_THEME::RELIEF);
+      }
+      add(SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme, std::move(themeNames), "uiTheme",
+                            StrId::STR_CAT_DISPLAY)
+              .withEnumRawValues(std::move(themeValues)));
+    }
+    if (!CROSSINK_APP_CAP_TOUCH) {
+      add(SettingInfo::Toggle(StrId::STR_RELIEF_CLOCK_TICK, &CrossPointSettings::reliefClockTick, "reliefClockTick",
+                              StrId::STR_CAT_DISPLAY));
+      add(SettingInfo::Toggle(StrId::STR_RELIEF_LIQUID_RISE, &CrossPointSettings::reliefLiquidRise, "reliefLiquidRise",
+                              StrId::STR_CAT_DISPLAY));
+      add(SettingInfo::Toggle(StrId::STR_RELIEF_PRESS_ECHO, &CrossPointSettings::reliefPressEcho, "reliefPressEcho",
+                              StrId::STR_CAT_DISPLAY));
+      add(SettingInfo::Toggle(StrId::STR_RELIEF_GREY_SHADOWS, &CrossPointSettings::reliefGreyShadows,
+                              "reliefGreyShadows", StrId::STR_CAT_DISPLAY));
+    }
     add(SettingInfo::Toggle(StrId::STR_SWAP_LIBRARY_FILE_BROWSER, &CrossPointSettings::swapLibraryFileBrowser,
                             "swapLibraryFileBrowser", StrId::STR_CAT_DISPLAY));
     add(SettingInfo::Enum(StrId::STR_UI_SCALE, &CrossPointSettings::uiScale, {StrId::STR_SMALL, StrId::STR_LARGE},

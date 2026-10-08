@@ -291,6 +291,18 @@ class SettingsActivity final : public Activity {
   std::atomic<bool> uiReady{false};
   int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
   int topIndex = 0;     // viewport scroll position, decoupled from the selection
+  // Relief: geometry captured from the FreeInkUI build, then repainted.
+  freeink::ui::Rect reliefTabRect{};
+  freeink::ui::Rect reliefListRect{};
+  int16_t reliefRowH = 0;
+  int16_t reliefRowGap = 0;
+  bool reliefBuilt = false;
+  // Relief press echo (stretch): one refresh shows the toggle pressed deep, then the change applies.
+  static constexpr unsigned long kReliefEchoMs = 500;
+  bool reliefEchoPending = false;
+  unsigned long reliefEchoStartMs = 0;
+  bool reliefEchoApplies() const;
+  void renderReliefSettings(const char* title);
 
   static void settingsScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);

@@ -41,6 +41,7 @@
 #include "components/icons/keyboardIcons.h"
 #include "components/icons/listIcons.h"
 #include "components/icons/touchHeaderIcons.h"
+#include "components/themes/relief/ReliefKit.h"
 #include "fontIds.h"
 #include "util/Dictionary.h"
 #include "util/DictionaryRegistry.h"
@@ -442,9 +443,30 @@ EpubReaderDrawerActivity::EpubReaderDrawerActivity(
   previewDirty = !mappedInput.hasTouchHardware();
 }
 
+bool EpubReaderDrawerActivity::wantsReliefSheet() const {
+  return SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF && !mappedInput.hasTouchHardware() &&
+         renderer.getScreenHeight() >= 700;
+}
+
 void EpubReaderDrawerActivity::onEnter() {
   Activity::onEnter();
   if (mappedInput.hasTouchHardware()) mappedInput.setReaderTouchscreenOverride(true);
+  reliefSheetTop = 0;
+  reliefBandChecked = true;
+  if (wantsReliefSheet()) {
+    // Keep the page's top lines: the Relief menu is a sheet over the page. Without memory for the band
+    // the menu simply stays full screen.
+    const int w = renderer.getScreenWidth();
+    reliefPageBandBytes = renderer.getRegionByteSize(0, 0, w, kReliefPageBandH);
+    if (reliefPageBandBytes != 0) reliefPageBand = makeUniqueNoThrow<uint8_t[]>(reliefPageBandBytes);
+    if (reliefPageBand &&
+        renderer.copyRegionToBuffer(0, 0, w, kReliefPageBandH, reliefPageBand.get(), reliefPageBandBytes)) {
+      reliefSheetTop = kReliefSheetTop;
+    } else {
+      LOG_ERR("ERDM", "Relief sheet: no memory for the page band; menu stays full screen");
+      reliefPageBand.reset();
+    }
+  }
 
   const ReaderDrawerCatalog catalog = makeReaderDrawerCatalog(
       {hasFootnotes, hasDictionary, hasBookmarks, hasClippings, showReadingPaceReset, stablePageCount > 0,
@@ -483,6 +505,8 @@ void EpubReaderDrawerActivity::onEnter() {
 }
 
 void EpubReaderDrawerActivity::onExit() {
+  reliefPageBand.reset();
+  reliefSheetTop = 0;
   commitSettings();
   ownedPreviewModel.reset();
   if (!mappedInput.hasTouchHardware()) {
@@ -856,6 +880,8 @@ bool EpubReaderDrawerActivity::showsSamplePreview() const {
 }
 
 void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
+  reliefRootBuilt = false;
+  reliefTabRect = {};
   fui::SheetProps sheet;
   const bool buttonDevice = !mappedInput.hasTouchHardware();
   sheet.anchor = fui::SheetEdge::Bottom;
@@ -869,6 +895,7 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
     screen.setContentMarginFromScreen(fui::Insets{
         static_cast<int16_t>(safe.y), static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
         static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height), static_cast<int16_t>(safe.x)});
+    if (reliefSheetTop > 0) screen.takeTop(static_cast<int16_t>(reliefSheetTop));
     drawerHandleRect = {};
   } else {
     const fui::Rect sheetContent = screen.sheet(sheet, drawerHeight());
@@ -954,7 +981,7 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
 void EpubReaderDrawerActivity::drawButtonBookHeader() {
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect header{safe.x, safe.y + metrics.topPadding, safe.width,
+  const Rect header{safe.x, safe.y + metrics.topPadding + reliefSheetTop, safe.width,
                     TouchHeaderBackButton::height(metrics, mappedInput)};
   GUI.drawHeader(renderer, header, epub ? epub->getTitle().c_str() : "", nullptr, false, true);
 
@@ -994,6 +1021,7 @@ void EpubReaderDrawerActivity::buildTabBar(UiApp::ScreenType& screen, const fui:
   }
   props.tabInset = fui::Insets{static_cast<int16_t>(4 + TAB_BAR_VERTICAL_PADDING), 4,
                                static_cast<int16_t>(8 + TAB_BAR_VERTICAL_PADDING), 4};
+  reliefTabRect = rect;
   const int16_t ruleY = drawBottomRule ? static_cast<int16_t>(rect.bottom() - 1) : rect.y;
   screen.target().fill(fui::Rect{rect.x, ruleY, rect.width, 1}, fui::Paint::solid(fui::Color::Black));
   fui::tabBar(screen.frame(), rect, props);
@@ -1052,6 +1080,12 @@ void EpubReaderDrawerActivity::buildRootRows(UiApp::ScreenType& screen) {
                             std::max(0, static_cast<int>(rows.size()) - visibleRows));
   state.rootTopIndex[static_cast<size_t>(state.tab)] = static_cast<int16_t>(top);
   const int displayedRows = std::min(visibleRows, static_cast<int>(rows.size()) - top);
+  reliefListRect = listBounds;
+  reliefRowH = rowHeight;
+  reliefGap = gap;
+  reliefTop = top;
+  reliefRows = displayedRows;
+  reliefRootBuilt = true;
   for (int i = 0; i < displayedRows; ++i) {
     const RowId row = rows[static_cast<size_t>(top + i)];
     char value[48] = {};
@@ -2867,12 +2901,16 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
   app.setDevice(uiTarget.deviceContext());
   app.render();
   if (buttonDevice) drawButtonBookHeader();
+  if (buttonDevice && SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) renderReliefOverlay();
+  drawReliefPageBand();
 #if CROSSINK_APP_READER_SAMPLE_PREVIEW
   previewDirty = true;  // The full-screen UI cleared the sample area as well.
   previewRendered = renderPreview(previewFontId, previewPrewarmScope);
   if (showsSamplePreview() && previewUnavailable) {
     app.render();  // A failed font selection rolled the draft back; repaint its values too.
     drawButtonBookHeader();
+    if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) renderReliefOverlay();
+    drawReliefPageBand();
     renderPreviewUnavailable();
   }
 #endif
@@ -3221,4 +3259,82 @@ bool EpubReaderDrawerActivity::rowToggleValue(const RowId row) const {
     default:
       return false;
   }
+}
+
+// Relief repaint of the reader menu's tab bar (a segmented well whose
+// selected tab pops out as a raised key) and root rows (raised cards; the focused row sinks).
+// Panes other than the root list keep FreeInkUI drawing with the Relief tokens.
+void EpubReaderDrawerActivity::renderReliefOverlay() {
+  using namespace relief;
+  if (reliefTabRect.width > 0) {
+    const auto& r = reliefTabRect;
+    renderer.fillRect(r.x, r.y, r.width, r.height, false);
+    const int x = r.x + 16, y = r.y + 4, w = r.width - 32, h = std::max(30, r.height - 10);
+    pressed(renderer, x, y, w, h, h / 2);
+    const freeink::Icon* icons[] = {&icon_case_sensitive_32, &icon_text_align_start_24, &icon_ellipsis_24,
+                                    &icon_bookmark_24, &icon_cog_24};
+    constexpr int n = static_cast<int>(sizeof(icons) / sizeof(icons[0]));
+    const float sw = (w - 8) / static_cast<float>(n);
+    for (int i = 0; i < n; ++i) {
+      const int sx = static_cast<int>(x + 4 + i * sw);
+      if (static_cast<int>(state.tab) == i)
+        raised(renderer, sx + 3, y + 5, static_cast<int>(sw) - 6, h - 10, (h - 10) / 2);
+      const auto& ic = *icons[i];
+      drawLucideIcon(renderer, ic, sx + static_cast<int>(sw) / 2 - ic.w / 2, y + h / 2 - ic.h / 2, true);
+    }
+  }
+  if (!reliefRootBuilt || state.pane != ReaderDrawerPane::Root) return;
+  const auto& L = reliefListRect;
+  renderer.fillRect(L.x - 4, L.y, L.width + 8, L.height, false);
+  const auto& rows = activeRows();
+  const int lh = renderer.getLineHeight(UI_10_FONT_ID);
+  const int sh = renderer.getLineHeight(SMALL_FONT_ID);
+  const int cardW = L.width - 10;
+  for (int i = 0; i < reliefRows; ++i) {
+    const int idx = reliefTop + i;
+    if (idx >= static_cast<int>(rows.size())) break;
+    const RowId row = rows[static_cast<size_t>(idx)];
+    const int y = L.y + i * (reliefRowH + reliefGap);
+    const bool f = isReaderDrawerRowFocused(buttonFocusActive, state.selectedIndex, static_cast<int16_t>(idx));
+    const int d = f ? 1 : 0;
+    surface(renderer, L.x, y, cardW, reliefRowH, 18, f);
+    text(renderer, UI_10_FONT_ID, L.x + 18 + d, y + (reliefRowH - lh) / 2 + d, rowLabel(row), true,
+         f ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    const int right = L.x + cardW - 16;
+    if (rowIsToggle(row)) {
+      const bool on = rowToggleValue(row);
+      const int tw = 50, th = 26, tx = right - tw + d, ty = y + (reliefRowH - th) / 2 + d;
+      if (on) {
+        renderer.fillRoundedRect(tx, ty, tw, th, th / 2, Color::Black);
+        renderer.fillRoundedRect(tx + tw - th + 3, ty + 3, th - 6, th - 6, (th - 6) / 2, Color::White);
+      } else {
+        groove(renderer, tx, ty, tw, th);
+        raised(renderer, tx + 3, ty + 3, th - 6, th - 6, (th - 6) / 2);
+      }
+    } else {
+      char value[48] = {};
+      const char* v = rowValue(row, value, sizeof(value));
+      int vr = right;
+      if (rowShowsNavigationCaret(row)) {
+        const int cx = right - 4 + d, cy = y + reliefRowH / 2 + d;
+        renderer.drawLine(cx - 5, cy - 6, cx, cy, 2, true);
+        renderer.drawLine(cx, cy, cx - 5, cy + 6, 2, true);
+        vr -= 18;
+      }
+      if (v && *v) textRight(renderer, SMALL_FONT_ID, vr + d, y + (reliefRowH - sh) / 2 + d, v, true);
+    }
+  }
+}
+
+void EpubReaderDrawerActivity::drawReliefPageBand() {
+  if (reliefSheetTop <= 0 || !reliefPageBand) return;
+  const int w = renderer.getScreenWidth();
+  renderer.fillRect(0, 0, w, reliefSheetTop, false);
+  renderer.copyBufferToRegion(0, 0, w, kReliefPageBandH, reliefPageBand.get(), reliefPageBandBytes);
+  // The sheet's edge: 2 px of ink with rounded top corners, and a groove grip (kept above the header).
+  const int y = kReliefPageBandH + 4;
+  const int h = reliefSheetTop - y + 2;
+  renderer.fillRoundedRect(0, y - 2, w, h + 2, 26, true, true, false, false, Color::Black);
+  renderer.fillRoundedRect(0, y, w, h, 26, true, true, false, false, Color::White);
+  relief::groove(renderer, w / 2 - 26, y + 8, 52, 8);
 }

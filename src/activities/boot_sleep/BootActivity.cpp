@@ -11,10 +11,14 @@
 #include <cmath>
 #include <cstring>
 
+#include "AppCapabilities.h"
 #include "AppVersion.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "ImageFolderIndex.h"
+#include "components/UiAppHelpers.h"
+#include "components/themes/relief/ReliefKit.h"
+#include "components/themes/relief/ReliefTheme.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
 
@@ -114,9 +118,31 @@ bool tryDrawRotatingBootImage(const GfxRenderer& renderer) {
   return pickAndDraw(true);
 }
 
+void drawReliefBootLogo(const GfxRenderer& renderer) {
+  // Relief: the app mark as a raised ink key, the name in the title face, and the version.
+  using namespace relief;
+  const int W = renderer.getScreenWidth();
+  const int H = renderer.getScreenHeight();
+  renderer.clearScreen();
+  const int d = 120, x = (W - d) / 2, y = H / 2 - 150;
+  renderer.fillRoundedRect(x + 6, y + 6, d, d, d / 2, Color::LightGray);
+  renderer.fillRoundedRect(x + 3, y + 3, d, d, d / 2, Color::DarkGray);
+  renderer.fillRoundedRect(x, y, d, d, d / 2, Color::Black);
+  if (const auto* ic = ReliefTheme::icon(UIIcon::Book, 32)) {
+    drawLucideIcon(renderer, *ic, W / 2 - ic->w / 2, y + d / 2 - ic->h / 2, false);
+  }
+  textCentered(renderer, kTitleFontId, 0, W, y + d + 30, tr(STR_CROSSINK));
+  textCentered(renderer, SMALL_FONT_ID, 0, W, y + d + 80, tr(STR_BOOTING));
+  textCentered(renderer, SMALL_FONT_ID, 0, W, H - 30, AppVersion::version());
+}
+
 void drawDefaultBootLogo(const GfxRenderer& renderer) {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
+  if (CROSSINK_THEME_RELIEF_ONLY || SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) {
+    drawReliefBootLogo(renderer);
+    return;
+  }
 
   renderer.clearScreen();
   renderer.drawImage(Logo120, (pageWidth - 120) / 2, (pageHeight - 120) / 2, 120, 120);

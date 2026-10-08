@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 
+#include "AppCapabilities.h"
 #include "CrossPointSettings.h"
 #include "components/themes/BaseTheme.h"
 

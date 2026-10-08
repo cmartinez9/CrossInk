@@ -23,6 +23,7 @@
 #include "components/themes/lyra/LyraCarouselTheme.h"
 #include "components/themes/lyra/LyraTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
+#include "components/themes/relief/ReliefTheme.h"
 #include "components/themes/roundedraff/RoundedRaffTheme.h"
 
 namespace {
@@ -57,12 +58,23 @@ std::string addBmpSuffix(const std::string& path, const char* suffix) {
 
 UITheme UITheme::instance;
 
+#if CROSSINK_THEME_RELIEF_ONLY
+UITheme::UITheme() : currentMetrics(&ReliefMetrics::values), currentTheme(std::make_unique<ReliefTheme>()) {
+#else
 UITheme::UITheme() : currentMetrics(&LyraMetrics::values), currentTheme(std::make_unique<LyraTheme>()) {
+#endif
   // Static construction must not log or depend on cross-TU serial initialization;
   // main.cpp reloads the saved theme after setup.
 }
 
 void UITheme::reload() {
+  if (CROSSINK_THEME_RELIEF_ONLY) {
+    // Relief-only images pin the stored theme, so every theme check in the app agrees with what is drawn.
+    SETTINGS.uiTheme = CrossPointSettings::UI_THEME::RELIEF;
+  } else if (CROSSINK_APP_CAP_TOUCH && SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) {
+    // Relief is drawn for button devices; touch images fall back to Lyra.
+    SETTINGS.uiTheme = CrossPointSettings::UI_THEME::LYRA;
+  }
   auto themeType = static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme);
   setTheme(themeType);
 }
@@ -81,10 +93,17 @@ bool UITheme::supportsCoverGrid() {
 }
 
 bool UITheme::hasCoverGridHome() {
+  if (CROSSINK_THEME_RELIEF_ONLY) return false;
   return SETTINGS.uiTheme == CrossPointSettings::UI_THEME::COVER_GRID && supportsCoverGrid();
 }
 
 void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
+#if CROSSINK_THEME_RELIEF_ONLY
+  (void)type;
+  currentTheme = std::make_unique<ReliefTheme>();
+  currentMetrics = &ReliefMetrics::values;
+  metricsValid = false;
+#else
   if (type == CrossPointSettings::UI_THEME::COVER_GRID && !supportsCoverGrid()) {
     type = CrossPointSettings::UI_THEME::LYRA;
   }
@@ -115,6 +134,11 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       currentTheme = std::make_unique<LyraCarouselTheme>();
       currentMetrics = &LyraCarouselMetrics::values;
       break;
+    case CrossPointSettings::UI_THEME::RELIEF:
+      LOG_DBG("UI", "Using Relief theme");
+      currentTheme = std::make_unique<ReliefTheme>();
+      currentMetrics = &ReliefMetrics::values;
+      break;
     case CrossPointSettings::UI_THEME::MINIMAL:
       LOG_DBG("UI", "Using Minimal theme");
       currentTheme = std::make_unique<MinimalTheme>();
@@ -132,6 +156,7 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       break;
   }
   metricsValid = false;
+#endif
 }
 
 const ThemeMetrics& UITheme::getMetrics() const {

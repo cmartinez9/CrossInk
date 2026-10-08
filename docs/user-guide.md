@@ -255,6 +255,22 @@ device model and build.
 
   Themes that show reading stats hide those stats while **Track Reading Stats** is off.
 
+  X3 and X4 firmware uses the **Relief** theme only and hides this setting.
+  Relief draws raised soft keys and cards with a large Home clock, Now reading
+  and Up next shelves, and battery and book progress as liquid tubes. It is not
+  offered on touch devices yet.
+
+- **Relief Motion** (Relief theme only): optional effects that each cost extra
+  screen refreshes.
+  - **Clock Ticks on Home** (off by default) - Redraw the Home clock every minute while
+    Home is open, with a cleaner refresh every 30 minutes
+  - **Liquid Rises on Open** (on by default) - On opening Home, draw the battery and book
+    tubes empty, then fill them on a second refresh
+  - **Press Echo** (on by default) - Show the pressed key for a moment before
+    Quick Actions and Settings toggles act
+  - **Grey Shadows on Home** (off by default) - Repaint Home shadows in real grey with
+    one extra grey refresh
+
 - Library display and filtering options are now in **Library > Settings**; see
   [Library Screen](#34-library-screen).
 

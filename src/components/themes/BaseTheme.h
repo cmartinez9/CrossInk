@@ -261,6 +261,13 @@ class BaseTheme {
  public:
   virtual ~BaseTheme() = default;
 
+  // Transient feedback state for the next frame. Activities set it before rendering; themes that draw
+  // hold feedback or a press echo read it (themes without that artwork ignore it).
+  void setHoldFeedback(const bool held) const { holdFeedback_ = held; }
+  bool holdFeedback() const { return holdFeedback_; }
+  void setPressEcho(const bool echo) const { pressEcho_ = echo; }
+  bool pressEcho() const { return pressEcho_; }
+
   // Component drawing methods
   void drawProgressBar(const GfxRenderer& renderer, Rect rect, size_t current, size_t total) const;
   void drawBatteryLeft(const GfxRenderer& renderer, Rect rect, bool showPercentage = true,
@@ -314,6 +321,9 @@ class BaseTheme {
                                int firstOptionIndex = -1) const;
   virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const;
   // title is borrowed and must stay alive for the call; pass nullptr or "" for none.
+  // The status bar's progress line: x/y/width/height is the full track, percent 0..100.
+  virtual void drawReaderProgress(const GfxRenderer& renderer, int x, int y, int width, int height, float percent,
+                                  bool foregroundBlack) const;
   virtual void drawReaderStatusBar(const GfxRenderer& renderer, ReaderStatusBarPosition position,
                                    const ReaderStatusBarContent& content,
                                    const ReaderStatusBarConfig* overrideConfig = nullptr) const;
@@ -333,4 +343,8 @@ class BaseTheme {
   static void drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight,
                                  bool foregroundBlack = true);
   static void drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX, int boltY, bool foregroundBlack = false);
+
+ private:
+  mutable bool holdFeedback_ = false;
+  mutable bool pressEcho_ = false;
 };

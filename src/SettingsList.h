@@ -585,8 +585,10 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
 // #1636) so the per-entry SettingInfo cost is paid once. Read-only consumers
 // can use it directly; mutable device UI lists use getSettingsList(), which
 // returns an owned copy and can add SD-card font and dictionary options.
-// Four edge gesture entries are compiled only for touch devices.
-inline constexpr size_t BASE_SETTINGS_CAPACITY = 104 + (CROSSINK_APP_CAP_TOUCH ? 4 : 0);
+// Four edge gesture entries are compiled only for touch devices, and four
+// Relief motion entries only for button devices.
+inline constexpr size_t BASE_SETTINGS_CAPACITY =
+    104 + (CROSSINK_APP_CAP_TOUCH ? 4 : 0) + (CROSSINK_APP_CAP_TOUCH ? 0 : 4);
 
 const std::vector<SettingInfo>& getBaseSettingsList();
 
@@ -994,6 +996,13 @@ inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vecto
   }
   addDisplaySetting(StrId::STR_UI_SCALE);
   addDisplaySetting(StrId::STR_SUNLIGHT_FADING_FIX);
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::RELIEF) {
+    displaySettings.push_back(SettingInfo::SectionHeader(StrId::STR_RELIEF_MOTION));
+    addDisplaySetting(StrId::STR_RELIEF_CLOCK_TICK);
+    addDisplaySetting(StrId::STR_RELIEF_LIQUID_RISE);
+    addDisplaySetting(StrId::STR_RELIEF_PRESS_ECHO);
+    addDisplaySetting(StrId::STR_RELIEF_GREY_SHADOWS);
+  }
 
   return displaySettings;
 }

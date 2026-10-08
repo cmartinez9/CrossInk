@@ -54,6 +54,9 @@ class LibraryActivity final : public Activity {
   int selection = CONTROL_COUNT;
   bool showSelection = true;
   int topIndex = 0;
+  bool reliefHoldShown = false;  // Relief: Confirm hint shows the held state
+  int reliefTop = 0;             // Relief: first visible row of the Relief card list
+  void renderReliefList();
   int gridPageStart = 0;
   int loadedGridPageStart = -1;
   int nextGridCoverRow = -1;
